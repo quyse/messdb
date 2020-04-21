@@ -1,0 +1,53 @@
+name:                messdb
+version:             0.1.0.0
+synopsis:            
+description:         
+license:             MIT
+license-file:        LICENSE
+author:              Alexander Bich <quyse0@gmail.com>
+maintainer:          Alexander Bich <quyse0@gmail.com>
+copyright:           (c) 2020 Alexander Bich
+category:            
+stability:           experimental
+build-type:          Simple
+cabal-version:       >=1.10
+
+library
+  exposed-modules:
+    MessDB.Node
+    MessDB.Slicing
+    MessDB.Store.Debug
+    MessDB.Store.File
+  hs-source-dirs:      src
+  c-sources:
+    src/c-bits/rollsum.c
+  build-depends:
+    base
+    , bytestring
+    , cereal
+    , cereal-vector
+    , cryptonite
+    , directory
+    , memory
+    , text
+    , vector
+  ghc-options:         -Wall
+  default-language:    Haskell2010
+
+test-suite messdb-spectest
+  type:                exitcode-stdio-1.0
+  main-is:             Spec.hs
+  other-modules:
+    MessDB.Test.NodeSpec
+    MessDB.Test.SlicingSpec
+  hs-source-dirs:      test
+  build-depends:
+    base
+    , bytestring
+    , cereal
+    , hspec
+    , messdb
+    , QuickCheck
+  ghc-options:         -Wall
+  default-language:    Haskell2010
+  build-tool-depends:  hspec-discover:hspec-discover
