@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, DefaultSignatures, FlexibleInstances, FunctionalDependencies, GADTs, LambdaCase, MultiParamTypeClasses, TypeFamilies, ViewPatterns #-}
+{-# LANGUAGE BangPatterns, ConstraintKinds, DefaultSignatures, FlexibleInstances, FunctionalDependencies, GADTs, GeneralizedNewtypeDeriving, LambdaCase, MultiParamTypeClasses, TypeFamilies, ViewPatterns #-}
 
 module MessDB.Node
   ( Encodable(..)
@@ -11,6 +11,7 @@ module MessDB.Node
   , ValueItem(..)
   , Tree(..)
   , itemsToTree
+  , reloadNode
   , checkTree
   , debugPrintTree
   ) where
@@ -21,11 +22,12 @@ import qualified Data.ByteArray as BA
 import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as BS
+import Data.Hashable(Hashable)
 import qualified Data.Serialize as S
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
-import System.IO.Unsafe(unsafePerformIO)
+import System.IO.Unsafe(unsafeInterleaveIO, unsafePerformIO)
 
 import MessDB.Slicing
 
@@ -42,7 +44,7 @@ class Encodable a where
 
 instance Encodable Int
 
-newtype NodeHash = NodeHash BS.ShortByteString deriving (Eq, Show)
+newtype NodeHash = NodeHash BS.ShortByteString deriving (Eq, Hashable, Show)
 
 instance Encodable NodeHash where
   encode (NodeHash bytes) = S.putShortByteString bytes
@@ -202,30 +204,32 @@ data Tree k v where
 type IsKeyValue k v = (Ord k, Encodable k, Encodable v)
 
 -- | Build additional layers over sequence of nodes as needed.
-closeNodes :: (IsItem k q, ItemFinalValue q ~ v) => [Node k q] -> Tree k v
-closeNodes = \case
-  [] -> EmptyTree
-  [n] -> Tree n
-  ns -> closeNodes $ itemLayer $ map NodeItem ns
+closeNodes :: (Store s, IsItem k q, ItemFinalValue q ~ v) => s -> [Node k q] -> IO (Tree k v)
+closeNodes store = \case
+  [] -> return EmptyTree
+  [n] -> Tree <$> reloadNode store n
+  ns -> closeNodes store $ itemLayer store $ map NodeItem ns
 
-itemLayer :: IsItem k q => [q] -> [Node k q]
-itemLayer items = withSliceState $ \ss -> let
+itemLayer :: (Store s, IsItem k q) => s -> [q] -> [Node k q]
+itemLayer store items = withSliceState $ \ss -> let
   f (i : is) = do
     z <- sliceBytes ss $ S.runPutLazy $ encode i
     if z
-      then return ([i], itemLayer is)
+      then return ([i], itemLayer store is)
       else do
         (fis, fns) <- f is
         return ((i : fis), fns)
   f [] = return ([], [])
   in do
     (is, ns) <- f items
-    return $ case is of
-      [] -> ns
-      _ -> newNode is : ns
+    case is of
+      [] -> return ns
+      _ -> (: ns) <$> newNode store is
 
-newNode :: IsItem k q => [q] -> Node k q
-newNode (V.fromList -> items) = n
+newNode :: (Store s, IsItem k q) => s -> [q] -> IO (Node k q)
+newNode store (V.fromList -> items) = do
+  save store n
+  return n
   where
     k1 = itemMinKey (V.head items)
     k2 = itemMaxKey (V.last items)
@@ -238,8 +242,14 @@ newNode (V.fromList -> items) = n
     h = nodeHash n
 
 -- | Pack nodes to a tree.
-itemsToTree :: IsKeyValue k v => [ValueItem k v] -> Tree k v
-itemsToTree = closeNodes . itemLayer
+itemsToTree :: (Store s, IsKeyValue k v) => s -> [ValueItem k v] -> IO (Tree k v)
+itemsToTree store = closeNodes store . itemLayer store
+
+-- | Load node from the store lazily, to allow GC of hierarchy.
+reloadNode :: (Store s, IsItem k q) => s -> Node k q -> IO (Node k q)
+reloadNode store Node
+  { node_hash = !h
+  } = unsafeInterleaveIO $ load store h
 
 checkTree :: Tree k v -> Bool
 checkTree (Tree root) = checkNode root True where
