@@ -8,6 +8,7 @@ module MessDB.Trie
   , FoldKey(..)
   , emptyTrie
   , singletonTrie
+  , trieToItems
   , mergeTries
   , itemsToTrie
   , foldToLast
@@ -34,7 +35,7 @@ import System.IO.Unsafe(unsafePerformIO)
 
 newtype Key = Key
   { unKey :: BS.ShortByteString
-  } deriving (Semigroup, Monoid, S.Serialize, IsString, Show)
+  } deriving (Eq, Ord, Semigroup, Monoid, S.Serialize, IsString, Show)
 
 type Value = B.ByteString
 
@@ -222,6 +223,22 @@ singletonNode key value = itemsToNode $ V.singleton ValueItem
   { item_path = key
   , item_value = value
   }
+
+trieToItems :: Trie -> [(Key, Value)]
+trieToItems EmptyTrie = []
+trieToItems (Trie node) = unpackNode mempty node where
+  unpackNode prefix Node
+    { node_items = items
+    } = let
+    unpackItem ValueItem
+      { item_path = path
+      , item_value = value
+      } = [(prefix <> path, value)]
+    unpackItem NodeItem
+      { item_path = path
+      , item_node = subNode
+      } = unpackNode (prefix <> path) subNode
+    in concatMap unpackItem $ V.toList items
 
 -- | Memoization for nodes.
 -- Evaluates passed node only if it's missing from store.

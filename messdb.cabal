@@ -53,6 +53,7 @@ test-suite messdb-spectest
     base
     , bytestring
     , cereal
+    , containers
     , hspec
     , messdb
     , vector

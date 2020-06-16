@@ -7,6 +7,7 @@ module MessDB.Test.TrieSpec
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Char
+import qualified Data.Map.Lazy as M
 import qualified Data.Vector as V
 import Data.Word
 import System.IO.Unsafe(unsafePerformIO)
@@ -29,11 +30,24 @@ spec = describe "Trie" $ do
     mergeCount <- choose (0, 5)
     return $ checkTrie $ mergeTries store store OP_FOLD_TO_LAST foldToLast (V.replicate mergeCount trie)
 
+checkedTrieItems :: [(Key, Value)] -> Trie -> Trie
+checkedTrieItems items trie = if items == trieToItems trie
+  then trie
+  else unsafePerformIO $ do
+    putStrLn "BEGIN checked trie items"
+    print items
+    putStrLn "BEGIN checked trie"
+    debugPrintTrie trie
+    putStrLn "END checked trie"
+    fail "checkedTrieItems: mismatch"
+
 arbitraryTrie :: (Int, Int) -> Int -> Gen Trie
 arbitraryTrie itemsCountRange alphabetSize = do
   itemsCount <- choose itemsCountRange
   items <- V.fromList <$> vectorOf itemsCount (arbitraryPair alphabetSize)
-  return $ printFailedTree items $ itemsToTrie store store items
+  let
+    uniqueItems = M.toAscList $ V.foldl (\m (k, v) -> M.insert k v m) M.empty items
+  return $ printFailedTree items $ checkedTrieItems uniqueItems $ itemsToTrie store store items
 
 arbitraryPair :: Int -> Gen (Key, Value)
 arbitraryPair alphabetSize = do
