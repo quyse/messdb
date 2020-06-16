@@ -422,7 +422,7 @@ checkNode' isRoot node@Node
   { node_maybeHash = maybeHash
   , node_items = items
   }
-  =  maybe True (hashOfNode node ==) maybeHash
+  =  maybeHash == node_maybeHash (finalizeNode node)
   -- non-zero number of items
   && not (V.null items)
   -- items must be sorted by paths, and paths must be different by first letter
