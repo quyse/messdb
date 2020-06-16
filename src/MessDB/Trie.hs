@@ -1,8 +1,10 @@
-{-# LANGUAGE LambdaCase, OverloadedStrings, PatternSynonyms, ViewPatterns #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, LambdaCase, OverloadedStrings, PatternSynonyms, ViewPatterns #-}
 
 module MessDB.Trie
   ( Node()
   , Trie(..)
+  , Key(..)
+  , FoldKey(..)
   , emptyTrie
   , singletonTrie
   , mergeTries
@@ -23,18 +25,23 @@ import qualified Data.ByteString.Short as BS
 import Data.Int
 import Data.Maybe
 import qualified Data.Serialize as S
+import Data.String
 import qualified Data.Vector as V
 import Data.Word
 import MessDB.Store
 import System.IO.Unsafe(unsafePerformIO)
 
+newtype Key = Key
+  { unKey :: BS.ShortByteString
+  } deriving (Semigroup, Monoid, S.Serialize, IsString, Show)
+
 data Item
   = ValueItem
-    { item_path :: {-# UNPACK #-} !BS.ShortByteString
+    { item_path :: {-# UNPACK #-} !Key
     , item_value :: B.ByteString
     }
   | NodeItem
-    { item_path :: {-# UNPACK #-} !BS.ShortByteString
+    { item_path :: {-# UNPACK #-} !Key
     , item_node :: Node -- stored either inline or hash only
     }
 
@@ -204,10 +211,10 @@ ensureNodeHash node@Node
 emptyTrie :: Trie
 emptyTrie = EmptyTrie
 
-singletonTrie :: BS.ShortByteString -> B.ByteString -> Trie
+singletonTrie :: Key -> B.ByteString -> Trie
 singletonTrie key value = Trie $ singletonNode key value
 
-singletonNode :: BS.ShortByteString -> B.ByteString -> Node
+singletonNode :: Key -> B.ByteString -> Node
 singletonNode key value = itemsToNode $ V.singleton ValueItem
   { item_path = key
   , item_value = value
@@ -237,10 +244,10 @@ memoize store memoStore memoHash node = unsafePerformIO $ do
     Right (Right newNode) -> return newNode
 
 -- | Merge tries.
-mergeTries :: (Store s, MemoStore ms) => s -> ms -> BS.ShortByteString -> (BS.ShortByteString -> B.ByteString -> B.ByteString -> B.ByteString) -> V.Vector Trie -> Trie
+mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> B.ByteString -> B.ByteString -> B.ByteString) -> V.Vector Trie -> Trie
 mergeTries store memoStore foldKey fold tries = if V.null nodes
   then EmptyTrie
-  else Trie $ mergeNodes store memoStore foldKey fold BS.empty nodes
+  else Trie $ mergeNodes store memoStore foldKey fold mempty nodes
   where
     nodes = V.mapMaybe trieToNode tries
     trieToNode = \case
@@ -248,7 +255,7 @@ mergeTries store memoStore foldKey fold tries = if V.null nodes
       EmptyTrie -> Nothing
 
 -- | Merge non-zero number of nodes.
-mergeNodes :: (Store s, MemoStore ms) => s -> ms -> BS.ShortByteString -> (BS.ShortByteString -> B.ByteString -> B.ByteString -> B.ByteString) -> BS.ShortByteString -> V.Vector Node -> Node
+mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> B.ByteString -> B.ByteString -> B.ByteString) -> Key -> V.Vector Node -> Node
 mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert mergeOpHash) mergedNode where
   mergeOpHash :: C.Digest C.SHA256
   mergeOpHash = C.hashlazy $ S.runPutLazy $ do
@@ -299,48 +306,48 @@ mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store mem
               else []
             sharedPrefix _ _ = []
             -- max prefix of current items
-            maxPrefix = BS.pack $ V.foldl1 sharedPrefix $ V.map (BS.unpack . item_path) currentItems
+            maxPrefix = BS.pack $ V.foldl1 sharedPrefix $ V.map (BS.unpack . unKey . item_path) currentItems
             maxPrefixLength = BS.length maxPrefix
 
             -- remove prefix from item path
             dropItemPathPrefix item = item
-              { item_path = BS.pack $ drop maxPrefixLength $ BS.unpack $ item_path item
+              { item_path = Key $ BS.pack $ drop maxPrefixLength $ BS.unpack $ unKey $ item_path item
               }
 
             -- pack item into node, cutting of prefix
             packItem item = case item of
               -- explode node items
               NodeItem
-                { item_path = path
-                , item_node = node@Node
+                { item_path = Key path
+                , item_node = Node
                   { node_items = subItems
                   }
-                } -> itemsToNode $ V.map (\item -> item
-                  { item_path = BS.pack (drop maxPrefixLength $ BS.unpack path) <> item_path item
-                  }) subItems
+                } -> itemsToNode $ V.map (\subItem -> subItem
+                { item_path = Key (BS.pack $ drop maxPrefixLength $ BS.unpack path) <> item_path subItem
+                }) subItems
               _ -> itemsToNode $ V.singleton $ dropItemPathPrefix item
 
             -- if prefix is zero
             in if maxPrefixLength == 0
               -- just fold the value items
               then ValueItem
-                { item_path = BS.empty
+                { item_path = mempty
                 , item_value = V.foldl1 (fold pathPrefix) $ V.map item_value currentItems
                 } : nextStep
               -- else recursively merge tries
               else let
                 mergedSubNode@Node
                   { node_items = mergedSubNodeItems
-                  } = mergeNodes store memoStore foldKey fold (pathPrefix <> maxPrefix) (V.map packItem currentItems)
+                  } = mergeNodes store memoStore foldKey fold (pathPrefix <> Key maxPrefix) (V.map packItem currentItems)
                 mergedItem = case V.head mergedSubNodeItems of
                   -- do not wrap the only NodeItem into another item
                   subItem@NodeItem
                     { item_path = path
                     } | V.length mergedSubNodeItems == 1 -> subItem
-                    { item_path = maxPrefix <> path
+                    { item_path = Key maxPrefix <> path
                     }
                   _ -> NodeItem
-                    { item_path = maxPrefix
+                    { item_path = Key maxPrefix
                     , item_node = mergedSubNode
                     }
                 in mergedItem : nextStep
@@ -348,13 +355,15 @@ mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store mem
       Nothing -> []
 
 
+newtype FoldKey = FoldKey BS.ShortByteString deriving (Eq, S.Serialize, IsString)
+
 -- | Standard fold operation: last item takes precedence.
 -- Fold key 'OP_FOLD_TO_LAST'.
-foldToLast :: BS.ShortByteString -> B.ByteString -> B.ByteString -> B.ByteString
+foldToLast :: Key -> B.ByteString -> B.ByteString -> B.ByteString
 foldToLast _k _a b = b
 
 -- | Create trie from items.
-itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (BS.ShortByteString, B.ByteString) -> Trie
+itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, B.ByteString) -> Trie
 itemsToTrie store memoStore pairs = mergeTries store memoStore OP_FOLD_TO_LAST foldToLast tries where
   tries = V.map (uncurry singletonTrie) pairs
 
@@ -366,15 +375,15 @@ pattern OP_MERGE_TRIES :: Word8
 pattern OP_MERGE_TRIES = 0
 
 -- Standard fold operations.
-pattern OP_FOLD_TO_LAST :: BS.ShortByteString
+pattern OP_FOLD_TO_LAST :: FoldKey
 pattern OP_FOLD_TO_LAST = "fold_to_last"
 
 
 -- Utils
 
 -- first byte of bytestring, or Nothing if it's empty
-maybeFirstByte :: BS.ShortByteString -> Maybe Word8
-maybeFirstByte (BS.unpack -> bytes) = case bytes of
+maybeFirstByte :: Key -> Maybe Word8
+maybeFirstByte (Key (BS.unpack -> bytes)) = case bytes of
   x : _ -> Just x
   [] -> Nothing
 
@@ -403,7 +412,7 @@ checkNode' isRoot node@Node
   && (
     case V.head items of
       NodeItem
-        { item_path = path
+        { item_path = Key path
         } | (BS.null path || V.length items == 1 && not isRoot) -> False
       _ -> True
     )
@@ -435,7 +444,7 @@ debugPrintNode space Node
 debugPrintItem :: Int -> Item -> IO ()
 debugPrintItem space item = do
   debugPrintSpace space
-  putStr $ show $ item_path item
+  putStr $ show $ unKey $ item_path item
   putStr ": "
   case item of
     ValueItem

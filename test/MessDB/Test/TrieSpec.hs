@@ -35,9 +35,9 @@ arbitraryTrie itemsCountRange alphabetSize = do
   items <- V.fromList <$> vectorOf itemsCount (arbitraryPair alphabetSize)
   return $ printFailedTree items $ itemsToTrie store store items
 
-arbitraryPair :: Int -> Gen (BS.ShortByteString, B.ByteString)
+arbitraryPair :: Int -> Gen (Key, B.ByteString)
 arbitraryPair alphabetSize = do
-  k <- BS.pack <$> listOf (arbitraryByte alphabetSize)
+  k <- Key . BS.pack <$> listOf (arbitraryByte alphabetSize)
   v <- B.pack <$> listOf (arbitraryByte alphabetSize)
   return (k, v)
 
