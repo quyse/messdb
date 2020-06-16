@@ -16,9 +16,11 @@ library
   exposed-modules:
     MessDB.Node
     MessDB.Slicing
+    MessDB.Store
     MessDB.Store.Debug
     MessDB.Store.File
     MessDB.Store.Memory
+    MessDB.Trie
   hs-source-dirs:      src
   c-sources:
     src/c-bits/rollsum.c
@@ -45,6 +47,7 @@ test-suite messdb-spectest
   other-modules:
     MessDB.Test.NodeSpec
     MessDB.Test.SlicingSpec
+    MessDB.Test.TrieSpec
   hs-source-dirs:      test
   build-depends:
     base
@@ -52,6 +55,7 @@ test-suite messdb-spectest
     , cereal
     , hspec
     , messdb
+    , vector
     , QuickCheck
   ghc-options:         -Wall
   default-language:    Haskell2010
