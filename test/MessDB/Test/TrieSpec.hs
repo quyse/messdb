@@ -24,11 +24,30 @@ spec = describe "Trie" $ do
   it "Random trie 1" $ property $ checkTrie <$> arbitraryTrie (0, 3) 3
   it "Random trie 2" $ property $ checkTrie <$> arbitraryTrie (0, 100) 26
   it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 1000) 26
-  it "Merge zero tries" $ checkTrie $ mergeTries store store OP_FOLD_TO_LAST foldToLast []
+  it "Merge zero tries" $ checkTrie $ mergeTries store store foldToLast []
   it "Merge with itself" $ property $ do
     trie <- arbitraryTrie (0, 3) 3
     mergeCount <- choose (0, 5)
-    return $ checkTrie $ mergeTries store store OP_FOLD_TO_LAST foldToLast (V.replicate mergeCount trie)
+    return $ checkTrie $ mergeTries store store foldToLast (V.replicate mergeCount trie)
+  it "Sort random trie 1" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 3) 3
+  it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 10) 10
+  it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 100) 26
+
+checkedTrieSort :: TransformFunc -> FoldFunc -> Trie -> Trie
+checkedTrieSort transformFunc@Func
+  { func_func = transform
+  } foldFunc@Func
+  { func_func = fold
+  } trie = let
+  items = V.fromList $ trieToItems trie
+  sortedItems = M.toAscList $ V.foldl (\m (k, v) -> M.alter (maybe (Just v) (\v' -> Just $ fold k v' v)) k m) M.empty $ V.map (uncurry transform) items
+  in printFailedTree sortedItems $ checkedTrieItems sortedItems $ sortTrie store store transformFunc foldFunc trie
+
+transformValueToKey :: TransformFunc
+transformValueToKey = Func
+  { func_key = "value_to_key"
+  , func_func = \_k v -> (Key $ BS.toShort v, v)
+  }
 
 checkedTrieItems :: [(Key, Value)] -> Trie -> Trie
 checkedTrieItems items trie = if items == trieToItems trie

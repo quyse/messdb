@@ -5,14 +5,17 @@ module MessDB.Trie
   , Trie(..)
   , Key(..)
   , Value
-  , FoldKey(..)
   , emptyTrie
   , singletonTrie
   , trieToItems
   , mergeTries
+  , sortTrie
+  , Func(..)
+  , FuncKey(..)
+  , TransformFunc
+  , FoldFunc
   , itemsToTrie
   , foldToLast
-  , pattern OP_FOLD_TO_LAST
   , checkTrie
   , debugPrintTrie
   ) where
@@ -264,10 +267,10 @@ memoize store memoStore memoHash node = unsafePerformIO $ do
     Right (Right newNode) -> return newNode
 
 -- | Merge tries.
-mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> Value -> Value -> Value) -> V.Vector Trie -> Trie
-mergeTries store memoStore foldKey fold tries = if V.null nodes
+mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> V.Vector Trie -> Trie
+mergeTries store memoStore foldFunc tries = if V.null nodes
   then EmptyTrie
-  else Trie $ mergeNodes store memoStore foldKey fold mempty nodes
+  else Trie $ mergeNodes store memoStore foldFunc mempty nodes
   where
     nodes = V.mapMaybe trieToNode tries
     trieToNode = \case
@@ -275,11 +278,14 @@ mergeTries store memoStore foldKey fold tries = if V.null nodes
       EmptyTrie -> Nothing
 
 -- | Merge non-zero number of nodes.
-mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> Value -> Value -> Value) -> Key -> V.Vector Node -> Node
-mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert mergeOpHash) mergedNode where
+mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> Key -> V.Vector Node -> Node
+mergeNodes store memoStore foldFunc@Func
+  { func_key = foldKey
+  , func_func = fold
+  } pathPrefix rootNodes = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert mergeOpHash) mergedNode where
   mergeOpHash :: C.Digest C.SHA256
   mergeOpHash = C.hashlazy $ S.runPutLazy $ do
-    S.putWord8 OP_MERGE_TRIES
+    S.putWord8 OP_MERGE_NODES
     S.put foldKey
     S.put pathPrefix
     mapM_ (encode . hashOfNode) rootNodes
@@ -336,15 +342,13 @@ mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store mem
 
             -- pack item into node, cutting of prefix
             packItem item = case item of
-              -- explode node items
+              -- explode node items with zero prefix
               NodeItem
                 { item_path = Key path
                 , item_node = Node
                   { node_items = subItems
                   }
-                } -> itemsToNode $ V.map (\subItem -> subItem
-                { item_path = Key (BS.pack $ drop maxPrefixLength $ BS.unpack path) <> item_path subItem
-                }) subItems
+                } | BS.length path == maxPrefixLength -> itemsToNode subItems
               _ -> itemsToNode $ V.singleton $ dropItemPathPrefix item
 
             -- if prefix is zero
@@ -358,7 +362,7 @@ mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store mem
               else let
                 mergedSubNode@Node
                   { node_items = mergedSubNodeItems
-                  } = mergeNodes store memoStore foldKey fold (pathPrefix <> Key maxPrefix) (V.map packItem currentItems)
+                  } = mergeNodes store memoStore foldFunc (pathPrefix <> Key maxPrefix) (V.map packItem currentItems)
                 mergedItem = case V.head mergedSubNodeItems of
                   -- do not wrap the only NodeItem into another item
                   subItem@NodeItem
@@ -375,27 +379,79 @@ mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store mem
       Nothing -> []
 
 
-newtype FoldKey = FoldKey BS.ShortByteString deriving (Eq, S.Serialize, IsString)
+sortTrie :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Trie -> Trie
+sortTrie store memoStore transformFunc foldFunc = \case
+  Trie rootNode -> Trie $ sortNode store memoStore transformFunc foldFunc mempty rootNode
+  EmptyTrie -> EmptyTrie
+
+sortNode :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Key -> Node -> Node
+sortNode store memoStore transformFunc@Func
+  { func_key = transformKey
+  , func_func = transform
+  } foldFunc@Func
+  { func_key = foldKey
+  } pathPrefix rootNode@Node
+  { node_items = items
+  } = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert sortOpHash) sortedNode where
+  sortOpHash :: C.Digest C.SHA256
+  sortOpHash = C.hashlazy $ S.runPutLazy $ do
+    S.putWord8 OP_SORT_NODE
+    S.put transformKey
+    S.put foldKey
+    S.put pathPrefix
+    encode $ hashOfNode rootNode
+
+  sortedNode = mergeNodes store memoStore foldFunc mempty $ V.map sortItem items
+
+  sortItem = \case
+    ValueItem
+      { item_path = path
+      , item_value = value
+      } -> uncurry singletonNode $ transform (pathPrefix <> path) value
+    NodeItem
+      { item_path = path
+      , item_node = node
+      } -> sortNode store memoStore transformFunc foldFunc (pathPrefix <> path) node
+
+
+data Func a = Func
+  { func_key :: {-# UNPACK #-} !FuncKey
+  , func_func :: !a
+  }
+
+newtype FuncKey = FuncKey BS.ShortByteString deriving (Eq, S.Serialize, IsString)
+
+type TransformFunc = Func (Key -> Value -> (Key, Value))
+type FoldFunc = Func (Key -> Value -> Value -> Value)
 
 -- | Standard fold operation: last item takes precedence.
 -- Fold key 'OP_FOLD_TO_LAST'.
-foldToLast :: Key -> Value -> Value -> Value
-foldToLast _k _a b = b
+foldToLast :: FoldFunc
+foldToLast = Func
+  { func_key = OP_FOLD_TO_LAST
+  , func_func = \_k _a b -> b
+  }
 
 -- | Create trie from items.
 itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, Value) -> Trie
-itemsToTrie store memoStore pairs = mergeTries store memoStore OP_FOLD_TO_LAST foldToLast tries where
+itemsToTrie store memoStore pairs = mergeTries store memoStore foldToLast tries where
   tries = V.map (uncurry singletonTrie) pairs
 
 
 
 
 -- Magic numbers for operations.
-pattern OP_MERGE_TRIES :: Word8
-pattern OP_MERGE_TRIES = 0
+
+pattern OP_MERGE_NODES :: Word8
+pattern OP_MERGE_NODES = 0
+
+pattern OP_SORT_NODE :: Word8
+pattern OP_SORT_NODE = 1
+
 
 -- Standard fold operations.
-pattern OP_FOLD_TO_LAST :: FoldKey
+
+pattern OP_FOLD_TO_LAST :: FuncKey
 pattern OP_FOLD_TO_LAST = "fold_to_last"
 
 
