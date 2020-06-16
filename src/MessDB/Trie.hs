@@ -4,6 +4,7 @@ module MessDB.Trie
   ( Node()
   , Trie(..)
   , Key(..)
+  , Value
   , FoldKey(..)
   , emptyTrie
   , singletonTrie
@@ -35,10 +36,12 @@ newtype Key = Key
   { unKey :: BS.ShortByteString
   } deriving (Semigroup, Monoid, S.Serialize, IsString, Show)
 
+type Value = B.ByteString
+
 data Item
   = ValueItem
     { item_path :: {-# UNPACK #-} !Key
-    , item_value :: B.ByteString
+    , item_value :: Value
     }
   | NodeItem
     { item_path :: {-# UNPACK #-} !Key
@@ -211,10 +214,10 @@ ensureNodeHash node@Node
 emptyTrie :: Trie
 emptyTrie = EmptyTrie
 
-singletonTrie :: Key -> B.ByteString -> Trie
+singletonTrie :: Key -> Value -> Trie
 singletonTrie key value = Trie $ singletonNode key value
 
-singletonNode :: Key -> B.ByteString -> Node
+singletonNode :: Key -> Value -> Node
 singletonNode key value = itemsToNode $ V.singleton ValueItem
   { item_path = key
   , item_value = value
@@ -244,7 +247,7 @@ memoize store memoStore memoHash node = unsafePerformIO $ do
     Right (Right newNode) -> return newNode
 
 -- | Merge tries.
-mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> B.ByteString -> B.ByteString -> B.ByteString) -> V.Vector Trie -> Trie
+mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> Value -> Value -> Value) -> V.Vector Trie -> Trie
 mergeTries store memoStore foldKey fold tries = if V.null nodes
   then EmptyTrie
   else Trie $ mergeNodes store memoStore foldKey fold mempty nodes
@@ -255,7 +258,7 @@ mergeTries store memoStore foldKey fold tries = if V.null nodes
       EmptyTrie -> Nothing
 
 -- | Merge non-zero number of nodes.
-mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> B.ByteString -> B.ByteString -> B.ByteString) -> Key -> V.Vector Node -> Node
+mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldKey -> (Key -> Value -> Value -> Value) -> Key -> V.Vector Node -> Node
 mergeNodes store memoStore foldKey fold pathPrefix rootNodes = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert mergeOpHash) mergedNode where
   mergeOpHash :: C.Digest C.SHA256
   mergeOpHash = C.hashlazy $ S.runPutLazy $ do
@@ -359,11 +362,11 @@ newtype FoldKey = FoldKey BS.ShortByteString deriving (Eq, S.Serialize, IsString
 
 -- | Standard fold operation: last item takes precedence.
 -- Fold key 'OP_FOLD_TO_LAST'.
-foldToLast :: Key -> B.ByteString -> B.ByteString -> B.ByteString
+foldToLast :: Key -> Value -> Value -> Value
 foldToLast _k _a b = b
 
 -- | Create trie from items.
-itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, B.ByteString) -> Trie
+itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, Value) -> Trie
 itemsToTrie store memoStore pairs = mergeTries store memoStore OP_FOLD_TO_LAST foldToLast tries where
   tries = V.map (uncurry singletonTrie) pairs
 
