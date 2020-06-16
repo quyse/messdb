@@ -1,11 +1,7 @@
 {-# LANGUAGE BangPatterns, ConstraintKinds, DefaultSignatures, GADTs, GeneralizedNewtypeDeriving, LambdaCase, ViewPatterns #-}
 
 module MessDB.Node
-  ( Encodable(..)
-  , NodeHash(..)
-  , nodeHashToString
-  , Store(..)
-  , Persistable(..)
+  ( NodeHash(..)
   , IsKeyValue
   , IsItem(..)
   , IsTree
@@ -17,55 +13,31 @@ module MessDB.Node
   , itemsToTree
   , reloadNode
   , checkTree
+  , sortTree
   , debugPrintTree
   ) where
 
 import Control.Monad
 import qualified Crypto.Hash as C
 import qualified Data.ByteArray as BA
-import qualified Data.ByteArray.Encoding as BA
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as BS
 import Data.Hashable(Hashable)
+import qualified Data.Map.Strict as M
+import Data.Maybe
+import Data.Proxy
 import qualified Data.Serialize as S
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
-import System.IO.Unsafe(unsafeInterleaveIO, unsafePerformIO)
+import System.IO.Unsafe(unsafePerformIO)
 
 import MessDB.Slicing
+import MessDB.Store
 
-class Encodable a where
-  -- | Encode only the object, without children.
-  encode :: a -> S.Put
-  default encode :: S.Serialize a => a -> S.Put
-  encode = S.put
-
-  -- | Decode only the object, without children.
-  decode :: S.Get a
-  default decode :: S.Serialize a => S.Get a
-  decode = S.get
-
-instance Encodable Int
-
-newtype NodeHash = NodeHash BS.ShortByteString deriving (Eq, Hashable, Show)
+newtype NodeHash = NodeHash StoreKey deriving (Eq, Hashable, Show)
 
 instance Encodable NodeHash where
-  encode (NodeHash bytes) = S.putShortByteString bytes
-  decode = NodeHash <$> S.getShortByteString (C.hashDigestSize (undefined :: C.SHA256))
-
-nodeHashToString :: NodeHash -> String
-nodeHashToString (NodeHash h) = T.unpack $ T.decodeUtf8 $ BA.convertToBase BA.Base16 $ BS.fromShort h
-
-class Store s where
-  storeSave :: s -> NodeHash -> IO BL.ByteString -> IO ()
-  storeLoad :: s -> NodeHash -> IO BL.ByteString
-
-class Persistable a where
-  -- | Save object, recursively including children into store.
-  save :: Store s => s -> a -> IO ()
-  -- | Load object with all children.
-  load :: Store s => s -> NodeHash -> IO a
+  encode (NodeHash (StoreKey bytes)) = S.putShortByteString bytes
+  decode = NodeHash . StoreKey <$> S.getShortByteString (C.hashDigestSize (undefined :: C.SHA256))
 
 -- | Requirements for key and value.
 type IsKeyValue k v = (Ord k, Encodable k, Encodable v)
@@ -75,6 +47,12 @@ class IsItem q where
   itemMaxKey :: Ord k => q k v -> k
   saveItem :: (Store s, IsKeyValue k v) => s -> q k v -> IO ()
   loadItem :: (Store s, IsKeyValue k v) => s -> q k v -> IO (q k v)
+
+  itemLevel :: Proxy q -> Int
+
+  -- | Sort operation.
+  -- Transforms key-value pairs into new key and value, and merges pairs with the same key.
+  sortItems :: (Store s, IsKeyValue k v, IsKeyValue k2 v2) => s -> (ValueItem k v -> ValueItem k2 v2) -> (k2 -> v2 -> v2 -> v2) -> V.Vector (q k v) -> Tree k2 v2
 
   -- Functions for encoding and decoding. As additional constraints are needed,
   -- it is impossible to do via Encodable requirement for the IsItem class.
@@ -102,7 +80,7 @@ data Node q k v = Node
   }
 
 nodeHash :: IsTree q k v => Node q k v -> NodeHash
-nodeHash a = NodeHash $ BS.toShort $ BA.convert h where
+nodeHash a = NodeHash $ StoreKey $ BS.toShort $ BA.convert h where
   h :: C.Digest C.SHA256
   h = C.hash $ S.runPut $ encode a
 
@@ -112,11 +90,13 @@ instance IsTree q k v => Encodable (Node q k v) where
     , node_maxKey = maxKey
     , node_items = items
     } = do
+    S.putWord8 0 -- Node magic
     encode minKey
     encode maxKey
     S.put $ V.length items
     V.mapM_ encodeItem items
   decode = do
+    0 <- S.getWord8 -- Node magic
     minKey <- decode
     maxKey <- decode
     itemsCount <- S.get
@@ -132,14 +112,14 @@ instance IsTree q k v => Encodable (Node q k v) where
 
 instance IsTree q k v => Persistable (Node q k v) where
   save store node@Node
-    { node_hash = hash
+    { node_hash = NodeHash hash
     , node_items = items
     } = storeSave store hash $ do
     mapM_ (saveItem store) items
     return $ S.runPutLazy $ encode node
   load store hash = do
     node@Node
-      { node_hash = calculatedHash
+      { node_hash = NodeHash calculatedHash
       , node_items = items
       } <- either fail return . S.runGetLazy decode =<< storeLoad store hash
     unless (calculatedHash == hash) $ fail "node hash is wrong"
@@ -164,6 +144,12 @@ instance IsItem ValueItem where
   itemMaxKey (ValueItem k _v) = k
   saveItem _ _ = return ()
   loadItem _ = return
+  itemLevel _ = 0
+  sortItems store transform fold = treeFromMap . V.foldr' transformAndFold M.empty
+    where
+      transformAndFold (transform -> ValueItem k v) = M.alter (Just . maybe v (fold k v)) k
+      treeFromMap = itemsToTree store . map (uncurry ValueItem) . M.toAscList
+
   checkItem _ _ = True
   debugPrintItem _ _ = return ()
 
@@ -199,17 +185,21 @@ instance IsItem q => IsItem (NodeItem q) where
     }) = k
   saveItem s (NodeItem n) = save s n
   loadItem s (NodeItem Node
-    { node_hash = h
+    { node_hash = NodeHash h
     , node_minKey = k1
     , node_maxKey = k2
     }) = do
     node@Node
-      { node_hash = nh
+      { node_hash = NodeHash nh
       , node_minKey = nk1
       , node_maxKey = nk2
       } <- load s h
     unless (h == nh && k1 == nk1 && k2 == nk2) $ fail "item does not correspond to loaded node"
     return $ NodeItem node
+  itemLevel = f Proxy where
+    f :: IsItem q => Proxy q -> Proxy (NodeItem q) -> Int
+    f p _ = itemLevel p + 1
+  sortItems store transform fold = mergeTrees store fold . V.map (\(NodeItem node) -> sortNode store transform fold node)
   checkItem (NodeItem n) = checkNode n
   debugPrintItem space (NodeItem n) = debugPrintNode space n
 
@@ -220,10 +210,10 @@ data Tree k v where
   EmptyTree :: Tree k v
 
 -- | Build additional layers over sequence of nodes as needed.
-closeNodes :: (Store s, IsTree q k v) => s -> [Node q k v] -> IO (Tree k v)
+closeNodes :: (Store s, IsTree q k v) => s -> [Node q k v] -> Tree k v
 closeNodes store = \case
-  [] -> return EmptyTree
-  [n] -> Tree <$> reloadNode store n
+  [] -> EmptyTree
+  [n] -> Tree $ reloadNode store n
   ns -> closeNodes store $ itemLayer store $ map NodeItem ns
 
 itemLayer :: (Store s, IsTree q k v) => s -> [q k v] -> [Node q k v]
@@ -258,14 +248,14 @@ newNode store (V.fromList -> items) = do
     h = nodeHash n
 
 -- | Pack nodes to a tree.
-itemsToTree :: (Store s, IsKeyValue k v) => s -> [ValueItem k v] -> IO (Tree k v)
+itemsToTree :: (Store s, IsKeyValue k v) => s -> [ValueItem k v] -> Tree k v
 itemsToTree store = closeNodes store . itemLayer store
 
 -- | Load node from the store lazily, to allow GC of hierarchy.
-reloadNode :: (Store s, IsTree q k v) => s -> Node q k v -> IO (Node q k v)
+reloadNode :: (Store s, IsTree q k v) => s -> Node q k v -> Node q k v
 reloadNode store Node
-  { node_hash = !h
-  } = unsafeInterleaveIO $ load store h
+  { node_hash = !(NodeHash h)
+  } = unsafePerformIO $ load store h
 
 checkTree :: IsKeyValue k v => Tree k v -> Bool
 checkTree (Tree root) = checkNode root True where
@@ -300,13 +290,13 @@ debugPrintTree = \case
 
 debugPrintNode :: (IsTree q k v, Show k) => Int -> Node q k v -> IO ()
 debugPrintNode space n@Node
-  { node_hash = h
+  { node_hash = NodeHash h
   , node_minKey = k1
   , node_maxKey = k2
   , node_items = items
   } = do
   debugPrintSpace space
-  putStrLn $ nodeHashToString h <> (' ' : shows k1 (' ' : shows k2 (' ' : shows (BL.length $ S.runPutLazy $ encode n) "")))
+  putStrLn $ storeKeyToString h <> (' ' : shows k1 (' ' : shows k2 (' ' : shows (BL.length $ S.runPutLazy $ encode n) "")))
   mapM_ (debugPrintItem (space + 1)) items
 
 debugPrintSpace :: Int -> IO ()

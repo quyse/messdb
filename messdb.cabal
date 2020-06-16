@@ -27,6 +27,7 @@ library
     , bytestring
     , cereal
     , cereal-vector
+    , containers
     , cryptonite
     , directory
     , hashable
