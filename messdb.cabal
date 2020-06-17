@@ -14,16 +14,12 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:
-    MessDB.Node
-    MessDB.Slicing
     MessDB.Store
     MessDB.Store.Debug
     MessDB.Store.File
     MessDB.Store.Memory
     MessDB.Trie
   hs-source-dirs:      src
-  c-sources:
-    src/c-bits/rollsum.c
   build-depends:
     base
     , bytestring
@@ -45,8 +41,6 @@ test-suite messdb-spectest
   type:                exitcode-stdio-1.0
   main-is:             Spec.hs
   other-modules:
-    MessDB.Test.NodeSpec
-    MessDB.Test.SlicingSpec
     MessDB.Test.TrieSpec
   hs-source-dirs:      test
   build-depends:
