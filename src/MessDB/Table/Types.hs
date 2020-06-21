@@ -28,6 +28,10 @@ import System.IO.Unsafe
 
 import MessDB.Trie
 
+-- | Serialization for keys.
+-- This is similar to Serialize, but must support important additional property:
+-- serialized values must be comparable as bytestrings, that is, retain the same
+-- order as original values.
 class (Eq k, Ord k) => TableKey k where
   putKey :: k -> S.Put
   default putKey :: S.Serialize k => k -> S.Put
@@ -141,7 +145,7 @@ instance TableKey B.ByteString where
     bytes = let
       f i p = do
         b <- S.getWord8
-        if (b .&. 0x80) > 0
+        if b `testBit` 7
           then let
             k = i .&. 0x7
             q = (b .&. ((1 `shiftL` (7 - k)) - 1)) `shiftL` (k + 1)
@@ -153,6 +157,7 @@ instance TableKey B.ByteString where
           else return []
       in f 0 0x00
 
+-- Text is simply compared by its UTF-8 representation.
 instance TableKey T.Text where
   putKey = putKey . T.encodeUtf8
   getKey = T.decodeUtf8 <$> getKey
