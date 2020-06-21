@@ -15,23 +15,27 @@ import Test.Hspec
 import Test.QuickCheck
 
 import MessDB.Trie
-import MessDB.Store.Memory
+
+import MessDB.Test.Lib
 
 spec :: Spec
 spec = describe "Trie" $ do
   it "Empty trie" $ checkTrie emptyTrie
   it "Singleton trie" $ checkTrie $ singletonTrie "abc" "def"
   it "Random trie 1" $ property $ checkTrie <$> arbitraryTrie (0, 3) 3
-  it "Random trie 2" $ property $ checkTrie <$> arbitraryTrie (0, 100) 26
-  it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 1000) 26
-  it "Merge zero tries" $ checkTrie $ mergeTries store store foldToLast []
+  it "Random trie 2" $ property $ checkTrie <$> arbitraryTrie (50, 100) 3
+  it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 200) 3
+  it "Random trie 4" $ property $ checkTrie <$> arbitraryTrie (0, 1000) 26
+  it "Merge zero tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast []
   it "Merge with itself" $ property $ do
-    trie <- arbitraryTrie (0, 3) 3
-    mergeCount <- choose (0, 5)
-    return $ checkTrie $ mergeTries store store foldToLast (V.replicate mergeCount trie)
+    trie <- arbitraryTrie (0, 100) 3
+    mergeCount <- choose (0, 50)
+    return $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast (V.replicate mergeCount trie)
   it "Sort random trie 1" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 3) 3
-  it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 10) 10
-  it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 100) 26
+  it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (50, 100) 3
+  it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (100, 200) 3
+  it "Sort random trie 4" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 100) 26
+  it "Sort random trie 5" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (100, 1000) 26
 
 checkedTrieSort :: TransformFunc -> FoldFunc -> Trie -> Trie
 checkedTrieSort transformFunc@Func
@@ -41,7 +45,7 @@ checkedTrieSort transformFunc@Func
   } trie = let
   items = V.fromList $ trieToItems trie
   sortedItems = M.toAscList $ V.foldl (\m (k, v) -> M.alter (maybe (Just v) (\v' -> Just $ fold k v' v)) k m) M.empty $ V.map (uncurry transform) items
-  in printFailedTree sortedItems $ checkedTrieItems sortedItems $ sortTrie store store transformFunc foldFunc trie
+  in printFailedTrie sortedItems $ checkedTrieItems sortedItems $ sortTrie testMemoryStore testMemoryStore transformFunc foldFunc trie
 
 transformValueToKey :: TransformFunc
 transformValueToKey = Func
@@ -66,7 +70,7 @@ arbitraryTrie itemsCountRange alphabetSize = do
   items <- V.fromList <$> vectorOf itemsCount (arbitraryPair alphabetSize)
   let
     uniqueItems = M.toAscList $ V.foldl (\m (k, v) -> M.insert k v m) M.empty items
-  return $ printFailedTree items $ checkedTrieItems uniqueItems $ itemsToTrie store store items
+  return $ printFailedTrie items $ checkedTrieItems uniqueItems $ itemsToTrie testMemoryStore testMemoryStore items
 
 arbitraryPair :: Int -> Gen (Key, Value)
 arbitraryPair alphabetSize = do
@@ -77,12 +81,8 @@ arbitraryPair alphabetSize = do
 arbitraryByte :: Int -> Gen Word8
 arbitraryByte alphabetSize = choose (fromIntegral $ ord 'a', fromIntegral $ ord 'a' + alphabetSize - 1)
 
-{-# NOINLINE store #-}
-store :: MemoryStore
-store = unsafePerformIO newMemoryStoreIO
-
-printFailedTree :: Show a => a -> Trie -> Trie
-printFailedTree a trie = if checkTrie trie
+printFailedTrie :: Show a => a -> Trie -> Trie
+printFailedTrie a trie = if checkTrie trie
   then trie
   else unsafePerformIO $ do
     putStrLn "BEGIN failed tree"
