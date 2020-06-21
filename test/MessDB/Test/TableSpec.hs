@@ -27,8 +27,8 @@ spec = describe "Table" $ do
   tableKeySpec "Word8" (Proxy :: Proxy Word8)
   tableKeySpec "ByteString" (Proxy :: Proxy B.ByteString)
   tableKeySpec "Text" (Proxy :: Proxy T.Text)
-  -- tableKeySpec "Float" (Proxy :: Proxy Float)
-  -- tableKeySpec "Double" (Proxy :: Proxy Double)
+  tableKeySpec "Float" (Proxy :: Proxy Float)
+  tableKeySpec "Double" (Proxy :: Proxy Double)
 
 tableKeySpec :: (TableKey k, Arbitrary k) => String -> Proxy k -> Spec
 tableKeySpec name p = describe name $ do

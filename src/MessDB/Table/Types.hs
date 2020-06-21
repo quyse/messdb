@@ -23,6 +23,7 @@ import qualified Data.Text.Encoding as T
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Storable
+import GHC.Float
 import System.IO.Unsafe
 
 import MessDB.Trie
@@ -95,6 +96,22 @@ instance TableKey Word16 where
 instance TableKey Word8 where
   putKey = S.putWord8
   getKey = S.getWord8
+
+-- IEEE 754 floating-point numbers are almost comparable as-is: exponent goes first (in big-endian)
+-- and in biased format, significand is non-negative. The only problem is sign bit,
+-- so we invert it, and also invert all other bits for negative numbers, to reverse the order.
+
+instance TableKey Float where
+  putKey = S.putWord32be . transform . castFloatToWord32 where
+    transform n = n `xor` (if n `testBit` 31 then 0xFFFFFFFF else 0x80000000)
+  getKey = castWord32ToFloat . transform <$> S.getWord32be where
+    transform n = n `xor` (if n `testBit` 31 then 0x80000000 else 0xFFFFFFFF)
+
+instance TableKey Double where
+  putKey = S.putWord64be . transform . castDoubleToWord64 where
+    transform n = n `xor` (if n `testBit` 63 then 0xFFFFFFFFFFFFFFFF else 0x8000000000000000)
+  getKey = castWord64ToDouble . transform <$> S.getWord64be where
+    transform n = n `xor` (if n `testBit` 63 then 0x8000000000000000 else 0xFFFFFFFFFFFFFFFF)
 
 -- ByteString is encoded in base7 big-endian. MSB of every byte is set to 1,
 -- except for the extra zero byte in the end.
