@@ -18,12 +18,15 @@ library
     MessDB.Store.Debug
     MessDB.Store.File
     MessDB.Store.Memory
+    MessDB.Table
+    MessDB.Table.Types
     MessDB.Trie
   hs-source-dirs:      src
   build-depends:
     base
     , bytestring
     , cereal
+    , cereal-text
     , cereal-vector
     , containers
     , cryptonite
@@ -42,6 +45,7 @@ test-suite messdb-spectest
   main-is:             Spec.hs
   other-modules:
     MessDB.Test.Lib
+    MessDB.Test.TableSpec
     MessDB.Test.TrieSpec
   hs-source-dirs:      test
   build-depends:
@@ -51,6 +55,7 @@ test-suite messdb-spectest
     , containers
     , hspec
     , messdb
+    , text
     , vector
     , QuickCheck
   ghc-options:         -Wall
