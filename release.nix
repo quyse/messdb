@@ -2,6 +2,9 @@
 rec {
   inherit (import ./default.nix { inherit nixpkgs; }) packages;
   touch = {
-    inherit (packages) messdb;
+    inherit (packages)
+      messdb
+      messdb-sqlite
+    ;
   };
 }

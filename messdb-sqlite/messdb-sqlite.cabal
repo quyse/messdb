@@ -1,0 +1,48 @@
+cabal-version:       3.0
+name:                messdb-sqlite
+version:             0.1.0.0
+synopsis:            SQLite-based backend for MessDB
+description:         
+license:             MIT
+license-file:        LICENSE
+author:              Alexander Bich <quyse0@gmail.com>
+maintainer:          Alexander Bich <quyse0@gmail.com>
+copyright:           (c) 2020 Alexander Bich
+category:            Database
+stability:           experimental
+build-type:          Simple
+
+library
+  exposed-modules:
+    MessDB.Store.Sqlite
+  hs-source-dirs:      src
+  cxx-sources:
+    src/c-bits/sqlite_store.cpp
+  build-depends:
+    base
+    , bytestring
+    , messdb
+  extra-libraries:
+    sqlite3
+  ghc-options:         -Wall
+  cxx-options:         -Wall -O3 -std=c++17 -fno-rtti
+  extra-libraries:     stdc++
+  default-language:    Haskell2010
+
+test-suite messdb-sqlite-spectest
+  type:                exitcode-stdio-1.0
+  main-is:             Spec.hs
+  other-modules:
+    MessDB.Test.SqliteStoreSpec
+  hs-source-dirs:      test
+  build-depends:
+    base
+    , bytestring
+    , hspec
+    , messdb
+    , messdb-sqlite
+    , stm
+    , temporary
+  ghc-options:         -Wall
+  default-language:    Haskell2010
+  build-tool-depends:  hspec-discover:hspec-discover

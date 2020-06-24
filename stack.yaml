@@ -2,3 +2,4 @@ resolver: lts-15.9
 
 packages:
 - messdb
+- messdb-sqlite
