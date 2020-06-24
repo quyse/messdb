@@ -1,16 +1,16 @@
+cabal-version:       3.0
 name:                messdb
 version:             0.1.0.0
-synopsis:            
+synopsis:            Database with incremental materialized views without tracking changes
 description:         
 license:             MIT
 license-file:        LICENSE
 author:              Alexander Bich <quyse0@gmail.com>
 maintainer:          Alexander Bich <quyse0@gmail.com>
 copyright:           (c) 2020 Alexander Bich
-category:            
+category:            Database
 stability:           experimental
 build-type:          Simple
-cabal-version:       >=1.10
 
 library
   exposed-modules:

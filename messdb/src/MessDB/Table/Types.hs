@@ -66,7 +66,8 @@ decodeValue = either error id . S.runGet getValue
 
 -- Keys are always compared as bytestrings, so we should be careful with encodings.
 
--- For numeric keys, big endian encoding is necessary.
+
+-- For integer keys, big endian encoding is necessary.
 -- Signed numbers must also be rebalanced into positive range, because two's complement won't work.
 
 instance TableKey Int64 where
@@ -101,6 +102,7 @@ instance TableKey Word8 where
   putKey = S.putWord8
   getKey = S.getWord8
 
+
 -- IEEE 754 floating-point numbers are almost comparable as-is: exponent goes first (in big-endian)
 -- and in biased format, significand is non-negative. The only problem is sign bit,
 -- so we invert it, and also invert all other bits for negative numbers, to reverse the order.
@@ -116,6 +118,7 @@ instance TableKey Double where
     transform n = n `xor` (if n `testBit` 63 then 0xFFFFFFFFFFFFFFFF else 0x8000000000000000)
   getKey = castWord64ToDouble . transform <$> getKey where
     transform n = n `xor` (if n `testBit` 63 then 0x8000000000000000 else 0xFFFFFFFFFFFFFFFF)
+
 
 -- ByteString is encoded in base7 big-endian. MSB of every byte is set to 1,
 -- except for the extra zero byte in the end.
@@ -157,10 +160,14 @@ instance TableKey B.ByteString where
           else return []
       in f 0 0x00
 
+
 -- Text is simply compared by its UTF-8 representation.
 instance TableKey T.Text where
   putKey = putKey . T.encodeUtf8
   getKey = T.decodeUtf8 <$> getKey
+
+
+-- Considering TableKey properies, tuples are easy.
 
 instance (TableKey a, TableKey b) => TableKey (a, b) where
   putKey (a, b) = do
