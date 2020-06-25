@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, DefaultSignatures #-}
+{-# LANGUAGE ConstraintKinds, DefaultSignatures, FlexibleContexts, FlexibleInstances, LambdaCase, TypeOperators, ViewPatterns #-}
 
 module MessDB.Table.Types
   ( TableKey(..)
@@ -16,6 +16,7 @@ import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Unsafe as B
 import Data.Int
+import Data.Proxy
 import qualified Data.Serialize as S
 import Data.Serialize.Text()
 import qualified Data.Text as T
@@ -23,6 +24,7 @@ import qualified Data.Text.Encoding as T
 import Data.Word
 import Foreign.ForeignPtr
 import Foreign.Storable
+import qualified GHC.Generics as G
 import GHC.Float
 import System.IO.Unsafe
 
@@ -34,11 +36,11 @@ import MessDB.Trie
 -- order as original values.
 class (Eq k, Ord k) => TableKey k where
   putTableKey :: k -> S.Put
-  default putTableKey :: S.Serialize k => k -> S.Put
-  putTableKey = S.put
+  default putTableKey :: (G.Generic k, GenericDatatypeTableKey (G.Rep k)) => k -> S.Put
+  putTableKey = putGenericDatatypeTableKey . G.from
   getTableKey :: S.Get k
-  default getTableKey :: S.Serialize k => S.Get k
-  getTableKey = S.get
+  default getTableKey :: (G.Generic k, GenericDatatypeTableKey (G.Rep k)) => S.Get k
+  getTableKey = G.to <$> getGenericDatatypeTableKey
 
 type TableValue = S.Serialize
 
@@ -167,24 +169,72 @@ instance TableKey T.Text where
   getTableKey = T.decodeUtf8 <$> getTableKey
 
 
--- Considering TableKey properies, tuples are easy.
+-- Considering TableKey properies, generic tuples/structs are easy.
 
-instance (TableKey a, TableKey b) => TableKey (a, b) where
-  putTableKey (a, b) = do
-    putTableKey a
-    putTableKey b
-  getTableKey = do
-    a <- getTableKey
-    b <- getTableKey
-    return (a, b)
+instance (TableKey a, TableKey b) => TableKey (a, b)
+instance (TableKey a, TableKey b, TableKey c) => TableKey (a, b, c)
+instance (TableKey a, TableKey b, TableKey c, TableKey d) => TableKey (a, b, c, d)
 
-instance (TableKey a, TableKey b, TableKey c) => TableKey (a, b, c) where
-  putTableKey (a, b, c) = do
-    putTableKey a
-    putTableKey b
-    putTableKey c
-  getTableKey = do
-    a <- getTableKey
-    b <- getTableKey
-    c <- getTableKey
-    return (a, b, c)
+-- Implementation for Generics.
+
+class GenericDatatypeTableKey f where
+  putGenericDatatypeTableKey :: f p -> S.Put
+  getGenericDatatypeTableKey :: S.Get (f p)
+
+class GenericConstructorTableKey f where
+  putGenericConstructorTableKey :: Word32 -> f p -> S.Put
+  getGenericConstructorTableKey :: Word32 -> S.Get (f p)
+  countGenericConstructorTableKey :: Proxy f -> Word32
+
+class GenericSelectorTableKey f where
+  putGenericSelectorTableKey :: f p -> S.Put
+  getGenericSelectorTableKey :: S.Get (f p)
+
+class GenericValueTableKey f where
+  putGenericValueTableKey :: f p -> S.Put
+  getGenericValueTableKey :: S.Get (f p)
+
+instance GenericConstructorTableKey f => GenericDatatypeTableKey (G.M1 G.D c f) where
+  putGenericDatatypeTableKey = putGenericConstructorTableKey 0 . G.unM1
+  getGenericDatatypeTableKey = do
+    i <- getTableKey
+    G.M1 <$> getGenericConstructorTableKey i
+
+instance GenericSelectorTableKey f => GenericConstructorTableKey (G.M1 G.C c f) where
+  putGenericConstructorTableKey i (G.M1 k) = do
+    putTableKey i
+    putGenericSelectorTableKey k
+  getGenericConstructorTableKey = \case
+    0 -> G.M1 <$> getGenericSelectorTableKey
+    _ -> fail "wrong table key index"
+  countGenericConstructorTableKey Proxy = 1
+
+instance (GenericConstructorTableKey a, GenericConstructorTableKey b) => GenericConstructorTableKey (a G.:+: b) where
+  putGenericConstructorTableKey i c = case c of
+    G.L1 lc -> putGenericConstructorTableKey i lc
+    G.R1 rc -> putGenericConstructorTableKey (i + len Proxy c) rc
+    where
+      len :: GenericConstructorTableKey a => Proxy a -> (a G.:+: b) p -> Word32
+      len p _ = countGenericConstructorTableKey p
+  getGenericConstructorTableKey i = q Proxy where
+    q :: (GenericConstructorTableKey a, GenericConstructorTableKey b) => Proxy a -> S.Get ((a G.:+: b) p)
+    q (countGenericConstructorTableKey -> ll) = if i < ll
+      then G.L1 <$> getGenericConstructorTableKey i
+      else G.R1 <$> getGenericConstructorTableKey (i - ll)
+  countGenericConstructorTableKey = q Proxy Proxy where
+    q :: (GenericConstructorTableKey a, GenericConstructorTableKey b) => Proxy a -> Proxy b -> Proxy (a G.:+: b) -> Word32
+    q a b Proxy = countGenericConstructorTableKey a + countGenericConstructorTableKey b
+
+instance GenericValueTableKey f => GenericSelectorTableKey (G.M1 G.S c f) where
+  putGenericSelectorTableKey = putGenericValueTableKey . G.unM1
+  getGenericSelectorTableKey = G.M1 <$> getGenericValueTableKey
+
+instance (GenericSelectorTableKey a, GenericSelectorTableKey b) => GenericSelectorTableKey (a G.:*: b) where
+  putGenericSelectorTableKey (a G.:*: b) = do
+    putGenericSelectorTableKey a
+    putGenericSelectorTableKey b
+  getGenericSelectorTableKey = liftM2 (G.:*:) getGenericSelectorTableKey getGenericSelectorTableKey
+
+instance TableKey k => GenericValueTableKey (G.K1 G.R k) where
+  putGenericValueTableKey = putTableKey . G.unK1
+  getGenericValueTableKey = G.K1 <$> getTableKey

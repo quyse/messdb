@@ -53,6 +53,7 @@ test-suite messdb-spectest
     , bytestring
     , cereal
     , containers
+    , generic-arbitrary
     , hspec
     , messdb
     , text
