@@ -3,10 +3,10 @@
 module MessDB.Table.Types
   ( TableKey(..)
   , TableValue
-  , encodeKey
-  , decodeKey
-  , encodeValue
-  , decodeValue
+  , encodeTableKey
+  , decodeTableKey
+  , encodeTableValue
+  , decodeTableValue
   ) where
 
 import Control.Monad
@@ -33,32 +33,32 @@ import MessDB.Trie
 -- serialized values must be comparable as bytestrings, that is, retain the same
 -- order as original values.
 class (Eq k, Ord k) => TableKey k where
-  putKey :: k -> S.Put
-  default putKey :: S.Serialize k => k -> S.Put
-  putKey = S.put
-  getKey :: S.Get k
-  default getKey :: S.Serialize k => S.Get k
-  getKey = S.get
+  putTableKey :: k -> S.Put
+  default putTableKey :: S.Serialize k => k -> S.Put
+  putTableKey = S.put
+  getTableKey :: S.Get k
+  default getTableKey :: S.Serialize k => S.Get k
+  getTableKey = S.get
 
 type TableValue = S.Serialize
 
-putValue :: S.Serialize v => v -> S.Put
-putValue = S.put
+putTableValue :: S.Serialize v => v -> S.Put
+putTableValue = S.put
 
-getValue :: S.Serialize v => S.Get v
-getValue = S.get
+getTableValue :: S.Serialize v => S.Get v
+getTableValue = S.get
 
-encodeKey :: TableKey k => k -> Key
-encodeKey = Key . BS.toShort . S.runPut . putKey
+encodeTableKey :: TableKey k => k -> Key
+encodeTableKey = Key . BS.toShort . S.runPut . putTableKey
 
-decodeKey :: TableKey k => Key -> k
-decodeKey (Key bytes) = either error id $ S.runGet getKey (BS.fromShort bytes)
+decodeTableKey :: TableKey k => Key -> k
+decodeTableKey (Key bytes) = either error id $ S.runGet getTableKey (BS.fromShort bytes)
 
-encodeValue :: TableValue v => v -> Value
-encodeValue = S.runPut . putValue
+encodeTableValue :: TableValue v => v -> Value
+encodeTableValue = S.runPut . putTableValue
 
-decodeValue :: TableValue v => Value -> v
-decodeValue = either error id . S.runGet getValue
+decodeTableValue :: TableValue v => Value -> v
+decodeTableValue = either error id . S.runGet getTableValue
 
 
 
@@ -71,36 +71,36 @@ decodeValue = either error id . S.runGet getValue
 -- Signed numbers must also be rebalanced into positive range, because two's complement won't work.
 
 instance TableKey Int64 where
-  putKey = S.putWord64be . fromIntegral . (+ minBound)
-  getKey = (+ (-minBound)) . fromIntegral <$> S.getWord64be
+  putTableKey = S.putWord64be . fromIntegral . (+ minBound)
+  getTableKey = (+ (-minBound)) . fromIntegral <$> S.getWord64be
 
 instance TableKey Int32 where
-  putKey = S.putWord32be . fromIntegral . (+ minBound)
-  getKey = (+ (-minBound)) . fromIntegral <$> S.getWord32be
+  putTableKey = S.putWord32be . fromIntegral . (+ minBound)
+  getTableKey = (+ (-minBound)) . fromIntegral <$> S.getWord32be
 
 instance TableKey Int16 where
-  putKey = S.putWord16be . fromIntegral . (+ minBound)
-  getKey = (+ (-minBound)) . fromIntegral <$> S.getWord16be
+  putTableKey = S.putWord16be . fromIntegral . (+ minBound)
+  getTableKey = (+ (-minBound)) . fromIntegral <$> S.getWord16be
 
 instance TableKey Int8 where
-  putKey = S.putWord8 . fromIntegral . (+ minBound)
-  getKey = (+ (-minBound)) . fromIntegral <$> S.getWord8
+  putTableKey = S.putWord8 . fromIntegral . (+ minBound)
+  getTableKey = (+ (-minBound)) . fromIntegral <$> S.getWord8
 
 instance TableKey Word64 where
-  putKey = S.putWord64be
-  getKey = S.getWord64be
+  putTableKey = S.putWord64be
+  getTableKey = S.getWord64be
 
 instance TableKey Word32 where
-  putKey = S.putWord32be
-  getKey = S.getWord32be
+  putTableKey = S.putWord32be
+  getTableKey = S.getWord32be
 
 instance TableKey Word16 where
-  putKey = S.putWord16be
-  getKey = S.getWord16be
+  putTableKey = S.putWord16be
+  getTableKey = S.getWord16be
 
 instance TableKey Word8 where
-  putKey = S.putWord8
-  getKey = S.getWord8
+  putTableKey = S.putWord8
+  getTableKey = S.getWord8
 
 
 -- IEEE 754 floating-point numbers are almost comparable as-is: exponent goes first (in big-endian)
@@ -108,22 +108,22 @@ instance TableKey Word8 where
 -- so we invert it, and also invert all other bits for negative numbers, to reverse the order.
 
 instance TableKey Float where
-  putKey = putKey . transform . castFloatToWord32 where
+  putTableKey = putTableKey . transform . castFloatToWord32 where
     transform n = n `xor` (if n `testBit` 31 then 0xFFFFFFFF else 0x80000000)
-  getKey = castWord32ToFloat . transform <$> getKey where
+  getTableKey = castWord32ToFloat . transform <$> getTableKey where
     transform n = n `xor` (if n `testBit` 31 then 0x80000000 else 0xFFFFFFFF)
 
 instance TableKey Double where
-  putKey = putKey . transform . castDoubleToWord64 where
+  putTableKey = putTableKey . transform . castDoubleToWord64 where
     transform n = n `xor` (if n `testBit` 63 then 0xFFFFFFFFFFFFFFFF else 0x8000000000000000)
-  getKey = castWord64ToDouble . transform <$> getKey where
+  getTableKey = castWord64ToDouble . transform <$> getTableKey where
     transform n = n `xor` (if n `testBit` 63 then 0x8000000000000000 else 0xFFFFFFFFFFFFFFFF)
 
 
 -- ByteString is encoded in base7 big-endian. MSB of every byte is set to 1,
 -- except for the extra zero byte in the end.
 instance TableKey B.ByteString where
-  putKey bytes = S.putByteString $ unsafePerformIO $ B.unsafeUseAsCStringLen bytes $ \(ptr, len) -> do
+  putTableKey bytes = S.putByteString $ unsafePerformIO $ B.unsafeUseAsCStringLen bytes $ \(ptr, len) -> do
     let
       newLen = len + (len + 6) `quot` 7 + 1
     fptr <- mallocForeignPtrBytes newLen
@@ -144,7 +144,7 @@ instance TableKey B.ByteString where
         in f 0 0
       pokeByteOff buf (newLen - 1) (0x00 :: Word8)
     return $ B.fromForeignPtr fptr 0 newLen
-  getKey = B.pack <$> bytes where
+  getTableKey = B.pack <$> bytes where
     bytes = let
       f i p = do
         b <- S.getWord8
@@ -163,28 +163,28 @@ instance TableKey B.ByteString where
 
 -- Text is simply compared by its UTF-8 representation.
 instance TableKey T.Text where
-  putKey = putKey . T.encodeUtf8
-  getKey = T.decodeUtf8 <$> getKey
+  putTableKey = putTableKey . T.encodeUtf8
+  getTableKey = T.decodeUtf8 <$> getTableKey
 
 
 -- Considering TableKey properies, tuples are easy.
 
 instance (TableKey a, TableKey b) => TableKey (a, b) where
-  putKey (a, b) = do
-    putKey a
-    putKey b
-  getKey = do
-    a <- getKey
-    b <- getKey
+  putTableKey (a, b) = do
+    putTableKey a
+    putTableKey b
+  getTableKey = do
+    a <- getTableKey
+    b <- getTableKey
     return (a, b)
 
 instance (TableKey a, TableKey b, TableKey c) => TableKey (a, b, c) where
-  putKey (a, b, c) = do
-    putKey a
-    putKey b
-    putKey c
-  getKey = do
-    a <- getKey
-    b <- getKey
-    c <- getKey
+  putTableKey (a, b, c) = do
+    putTableKey a
+    putTableKey b
+    putTableKey c
+  getTableKey = do
+    a <- getTableKey
+    b <- getTableKey
+    c <- getTableKey
     return (a, b, c)

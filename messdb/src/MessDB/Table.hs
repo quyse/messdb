@@ -21,8 +21,8 @@ newtype TableTransformFunc k v k' v' = TableTransformFunc TransformFunc
 tableTransformFunc :: (TableKey k, TableValue v, TableKey k', TableValue v') => FuncKey -> (k -> v -> (k', v')) -> TableTransformFunc k v k' v'
 tableTransformFunc funcKey f = TableTransformFunc Func
   { func_key = funcKey
-  , func_func = \(decodeKey -> k) (decodeValue -> v) -> let
-    (encodeKey -> k', encodeValue -> v') = f k v
+  , func_func = \(decodeTableKey -> k) (decodeTableValue -> v) -> let
+    (encodeTableKey -> k', encodeTableValue -> v') = f k v
     in (k', v')
   }
 
@@ -31,7 +31,7 @@ newtype TableFoldFunc k v = TableFoldFunc FoldFunc
 tableFoldFunc :: (TableKey k, TableValue v) => FuncKey -> (k -> v -> v -> v) -> TableFoldFunc k v
 tableFoldFunc funcKey f = TableFoldFunc Func
   { func_key = funcKey
-  , func_func = \(decodeKey -> k) (decodeValue -> v1) (decodeValue -> v2) -> encodeValue (f k v1 v2)
+  , func_func = \(decodeTableKey -> k) (decodeTableValue -> v1) (decodeTableValue -> v2) -> encodeTableValue (f k v1 v2)
   }
 
 sortTable

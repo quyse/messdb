@@ -41,14 +41,14 @@ tableKeySpec name p = describe name $ do
     it "decode is inverse of encode" $ property $ do
       k <- gen
       let
-        Right k' = S.runGet getKey $ S.runPut $ putKey k
+        Right k' = S.runGet getTableKey $ S.runPut $ putTableKey k
       return $ k == k'
     it "correct comparison" $ property $ do
       a <- gen
       b <- gen
       let
-        a' = S.runPut $ putKey a
-        b' = S.runPut $ putKey b
+        a' = S.runPut $ putTableKey a
+        b' = S.runPut $ putTableKey b
       return $ compare a b == compare a' b'
 
   f2 :: (TableKey k, Arbitrary k) => Proxy k -> Gen (k, k) -> Spec
