@@ -7,6 +7,7 @@ module MessDB.Trie
   , Value
   , emptyTrie
   , singletonTrie
+  , trieHash
   , trieToItems
   , mergeTries
   , sortTrie
@@ -226,6 +227,10 @@ singletonNode key value = itemsToNode $ V.singleton ValueItem
   { item_path = key
   , item_value = value
   }
+
+trieHash :: Trie -> StoreKey
+trieHash (Trie node) = hashOfNode node
+trieHash EmptyTrie = StoreKey mempty
 
 trieToItems :: Trie -> [(Key, Value)]
 trieToItems EmptyTrie = []

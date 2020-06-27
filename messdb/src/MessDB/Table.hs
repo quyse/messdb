@@ -6,15 +6,25 @@ module MessDB.Table
   , tableTransformFunc
   , TableFoldFunc(..)
   , tableFoldFunc
+  , emptyTable
+  , singletonTable
+  , mergeTables
   , sortTable
+  , tableToRows
+  , tableFromRows
   , printTable
+  , tableFoldToLast
   ) where
+
+import qualified Data.Vector as V
 
 import MessDB.Store
 import MessDB.Table.Types
 import MessDB.Trie
 
-newtype Table k v = Table Trie
+newtype Table k v = Table
+  { unTable :: Trie
+  }
 
 newtype TableTransformFunc k v k' v' = TableTransformFunc TransformFunc
 
@@ -34,6 +44,23 @@ tableFoldFunc funcKey f = TableFoldFunc Func
   , func_func = \(decodeTableKey -> k) (decodeTableValue -> v1) (decodeTableValue -> v2) -> encodeTableValue (f k v1 v2)
   }
 
+emptyTable :: Table k v
+emptyTable = Table EmptyTrie
+
+singletonTable :: (TableKey k, TableValue v) => k -> v -> Table k v
+singletonTable key value = Table $ singletonTrie (encodeTableKey key) (encodeTableValue value)
+
+mergeTables
+  :: (TableKey k, TableValue v, Store s, MemoStore ms)
+  => s -> ms
+  -> TableFoldFunc k v
+  -> V.Vector (Table k v)
+  -> Table k v
+mergeTables store memoStore
+  (TableFoldFunc foldFunc)
+  (V.map unTable -> tries)
+  = Table $ mergeTries store memoStore foldFunc tries
+
 sortTable
   :: (TableKey k, TableValue v, TableKey k', TableValue v', Store s, MemoStore ms)
   => s -> ms
@@ -47,6 +74,28 @@ sortTable store memoStore
   (Table trie)
   = Table $ sortTrie store memoStore transformFunc foldFunc trie
 
+tableToRows :: (TableKey k, TableValue v) => Table k v -> [(k, v)]
+tableToRows (Table trie) = map (\(k, v) -> (decodeTableKey k, decodeTableValue v)) $ trieToItems trie
+
+tableFromRows
+  :: (TableKey k, TableValue v, Store s, MemoStore ms)
+  => s -> ms
+  -> [(k, v)]
+  -> Table k v
+tableFromRows store memoStore = tableFromTables . map (\(k, v) -> singletonTable k v) where
+  tableFromTables [] = emptyTable
+  tableFromTables [t] = t
+  tableFromTables ts = tableFromTables $ map (mergeTables store memoStore tableFoldToLast) $ splitIntoGroups ts
+  -- split into groups
+  splitIntoGroups [] = []
+  splitIntoGroups tables = let
+    (a, b) = splitAt groupSize tables
+    in V.fromList a : splitIntoGroups b
+  -- number of rows/tables per group
+  groupSize = 1024
+
 printTable :: (TableKey k, TableValue v, Show k, Show v) => Table k v -> IO ()
-printTable (Table trie) = mapM_ printItem $ trieToItems trie where
-  printItem (k, v) = putStrLn $ shows k $ ' ' : show v
+printTable = mapM_ print . tableToRows
+
+tableFoldToLast :: TableFoldFunc k v
+tableFoldToLast = TableFoldFunc foldToLast
