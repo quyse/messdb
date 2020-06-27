@@ -7,6 +7,8 @@ struct SqliteStore
 	sqlite3_stmt* stmtStoreKeyExists = nullptr;
 	sqlite3_stmt* stmtStoreGet = nullptr;
 	sqlite3_stmt* stmtStoreSet = nullptr;
+	sqlite3_stmt* stmtMemoStoreGet = nullptr;
+	sqlite3_stmt* stmtMemoStoreSet = nullptr;
 	bool error = false;
 
 	~SqliteStore()
@@ -14,6 +16,8 @@ struct SqliteStore
 		if(stmtStoreKeyExists) sqlite3_finalize(stmtStoreKeyExists);
 		if(stmtStoreGet) sqlite3_finalize(stmtStoreGet);
 		if(stmtStoreSet) sqlite3_finalize(stmtStoreSet);
+		if(stmtMemoStoreGet) sqlite3_finalize(stmtMemoStoreGet);
+		if(stmtMemoStoreSet) sqlite3_finalize(stmtMemoStoreSet);
 		if(db) sqlite3_close(db);
 	}
 
@@ -23,8 +27,7 @@ struct SqliteStore
 	}
 };
 
-struct SqliteStoreBlob;
-extern "C" SqliteStoreBlob* messdb_sqlite_store_create_blob(void const* data, int size);
+extern "C" void const* messdb_sqlite_store_create_blob(void const* data, int size);
 
 extern "C" SqliteStore* messdb_sqlite_store_open(char const* path)
 {
@@ -33,6 +36,14 @@ extern "C" SqliteStore* messdb_sqlite_store_open(char const* path)
 	// open db
 	int e;
 	if((e = sqlite3_open(path, &store->db)) != SQLITE_OK)
+		return nullptr;
+
+	// set settings
+	if(sqlite3_exec(store->db, "\
+PRAGMA locking_mode = EXCLUSIVE; \
+PRAGMA journal_mode = WAL; \
+PRAGMA synchronous = OFF; \
+", nullptr, nullptr, nullptr) != SQLITE_OK)
 		return nullptr;
 
 	// create tables
@@ -60,6 +71,14 @@ CREATE TABLE IF NOT EXISTS memo_store \
 	if(sqlite3_prepare_v3(store->db,
 		"INSERT INTO store(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
 		-1, SQLITE_PREPARE_PERSISTENT, &store->stmtStoreSet, nullptr) != SQLITE_OK)
+		return nullptr;
+	if(sqlite3_prepare_v3(store->db,
+		"SELECT value FROM memo_store WHERE key = ?",
+		-1, SQLITE_PREPARE_PERSISTENT, &store->stmtMemoStoreGet, nullptr) != SQLITE_OK)
+		return nullptr;
+	if(sqlite3_prepare_v3(store->db,
+		"INSERT INTO memo_store(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
+		-1, SQLITE_PREPARE_PERSISTENT, &store->stmtMemoStoreSet, nullptr) != SQLITE_OK)
 		return nullptr;
 
 	return store.release();
@@ -111,17 +130,19 @@ extern "C" int messdb_sqlite_store_key_exists(SqliteStore* store, void const* ke
 	return exists;
 }
 
-extern "C" SqliteStoreBlob* messdb_sqlite_store_get(SqliteStore* store, void const* key, int keySize)
+extern "C" void messdb_sqlite_store_get(SqliteStore* store, void const* key, int keySize, void const** const value, int* const valueSize)
 {
+	*value = nullptr;
+	*valueSize = 0;
+
 	sqlite3_stmt* stmt = store->stmtStoreGet;
 
 	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
 	{
 		store->setError();
-		return nullptr;
+		return;
 	}
 
-	SqliteStoreBlob* blob = nullptr;
 	for(bool stop = false; !stop; )
 	{
 		switch(sqlite3_step(stmt))
@@ -130,7 +151,8 @@ extern "C" SqliteStoreBlob* messdb_sqlite_store_get(SqliteStore* store, void con
 			{
 				void const* data = sqlite3_column_blob(stmt, 0);
 				int size = sqlite3_column_bytes(stmt, 0);
-				blob = messdb_sqlite_store_create_blob(data, size);
+				*value = messdb_sqlite_store_create_blob(data, size);
+				*valueSize = size;
 			}
 			break;
 		case SQLITE_DONE:
@@ -145,13 +167,71 @@ extern "C" SqliteStoreBlob* messdb_sqlite_store_get(SqliteStore* store, void con
 
 	sqlite3_reset(stmt);
 	sqlite3_clear_bindings(stmt);
-
-	return blob;
 }
 
 extern "C" void messdb_sqlite_store_set(SqliteStore* store, void const* key, int keySize, void const* value, int valueSize)
 {
 	sqlite3_stmt* stmt = store->stmtStoreSet;
+
+	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
+	{
+		store->setError();
+		return;
+	}
+	if(sqlite3_bind_blob(stmt, 2, value, valueSize, nullptr) != SQLITE_OK)
+	{
+		store->setError();
+		return;
+	}
+
+	if(sqlite3_step(stmt) != SQLITE_DONE) store->setError();
+
+	sqlite3_reset(stmt);
+	sqlite3_clear_bindings(stmt);
+}
+
+extern "C" void messdb_sqlite_memo_store_get(SqliteStore* store, void const* key, int keySize, void const** const value, int* const valueSize)
+{
+	*value = nullptr;
+	*valueSize = 0;
+
+	sqlite3_stmt* stmt = store->stmtMemoStoreGet;
+
+	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
+	{
+		store->setError();
+		return;
+	}
+
+	for(bool stop = false; !stop; )
+	{
+		switch(sqlite3_step(stmt))
+		{
+		case SQLITE_ROW:
+			{
+				void const* data = sqlite3_column_blob(stmt, 0);
+				int size = sqlite3_column_bytes(stmt, 0);
+				*value = messdb_sqlite_store_create_blob(data, size);
+				*valueSize = size;
+			}
+			break;
+		case SQLITE_DONE:
+			stop = true;
+			break;
+		default:
+			stop = true;
+			store->setError();
+			break;
+		}
+	}
+
+	sqlite3_reset(stmt);
+	sqlite3_clear_bindings(stmt);
+}
+
+extern "C" void messdb_sqlite_memo_store_set(SqliteStore* store, void const* key, int keySize, void const* value, int valueSize)
+{
+	sqlite3_stmt* stmt = store->stmtMemoStoreSet;
 
 	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
 	{
