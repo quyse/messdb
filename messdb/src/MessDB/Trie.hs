@@ -184,7 +184,7 @@ itemsToNode items = finalizeNode node where
     }
 
 maxInlineNodeSize :: Int64
-maxInlineNodeSize = 1024
+maxInlineNodeSize = 4096
 
 -- | Finalize node.
 -- Add encoded representation and hash if needed.
