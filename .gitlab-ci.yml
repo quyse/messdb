@@ -4,6 +4,6 @@ stages:
 packages:
   stage: build
   script:
-  - nix-build -QA packages.messdb --no-out-link ./release.nix
+  - nix-build -QA touch --no-out-link ./release.nix
   tags:
   - nix
