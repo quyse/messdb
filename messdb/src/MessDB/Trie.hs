@@ -459,9 +459,9 @@ pattern OP_FOLD_TO_LAST = "fold_to_last"
 
 -- first byte of bytestring, or Nothing if it's empty
 maybeFirstByte :: Key -> Maybe Word8
-maybeFirstByte (Key (BS.unpack -> bytes)) = case bytes of
-  x : _ -> Just x
-  [] -> Nothing
+maybeFirstByte (Key bytes) = if BS.null bytes
+  then Nothing
+  else Just $ BS.index bytes 0
 
 
 -- Checking
