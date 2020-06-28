@@ -8,6 +8,8 @@ module MessDB.Store.Stat
   ) where
 
 import Control.Concurrent.STM
+import qualified Data.ByteString.Lazy as BL
+import Data.Int
 
 import MessDB.Store
 
@@ -28,8 +30,10 @@ newStatStoreIO store = do
 
 data StoreStats = StoreStats
   { storeStats_loadCount :: {-# UNPACK #-} !Int
+  , storeStats_loadBytesCount :: {-# UNPACK #-} !Int64
   , storeStats_saveCount :: {-# UNPACK #-} !Int
   , storeStats_saveActionCount :: {-# UNPACK #-} !Int
+  , storeStats_saveBytesCount :: {-# UNPACK #-} !Int64
   , storeStats_cacheCount :: {-# UNPACK #-} !Int
   , storeStats_cacheActionCount :: {-# UNPACK #-} !Int
   , storeStats_cacheNewValueCount :: {-# UNPACK #-} !Int
@@ -38,8 +42,10 @@ data StoreStats = StoreStats
 zeroStoreStats :: StoreStats
 zeroStoreStats = StoreStats
   { storeStats_loadCount = 0
+  , storeStats_loadBytesCount = 0
   , storeStats_saveCount = 0
   , storeStats_saveActionCount = 0
+  , storeStats_saveBytesCount = 0
   , storeStats_cacheCount = 0
   , storeStats_cacheActionCount = 0
   , storeStats_cacheNewValueCount = 0
@@ -49,22 +55,28 @@ zeroStoreStats = StoreStats
 diffStoreStats :: StoreStats -> StoreStats -> StoreStats
 diffStoreStats StoreStats
   { storeStats_loadCount = loadCountBefore
+  , storeStats_loadBytesCount = loadBytesCountBefore
   , storeStats_saveCount = saveCountBefore
   , storeStats_saveActionCount = saveActionCountBefore
+  , storeStats_saveBytesCount = saveBytesCountBefore
   , storeStats_cacheCount = cacheCountBefore
   , storeStats_cacheActionCount = cacheActionCountBefore
   , storeStats_cacheNewValueCount = cacheNewValueCountBefore
   } StoreStats
   { storeStats_loadCount = loadCountAfter
+  , storeStats_loadBytesCount = loadBytesCountAfter
   , storeStats_saveCount = saveCountAfter
   , storeStats_saveActionCount = saveActionCountAfter
+  , storeStats_saveBytesCount = saveBytesCountAfter
   , storeStats_cacheCount = cacheCountAfter
   , storeStats_cacheActionCount = cacheActionCountAfter
   , storeStats_cacheNewValueCount = cacheNewValueCountAfter
   } = StoreStats
   { storeStats_loadCount = loadCountAfter - loadCountBefore
+  , storeStats_loadBytesCount = loadBytesCountAfter - loadBytesCountBefore
   , storeStats_saveCount = saveCountAfter - saveCountBefore
   , storeStats_saveActionCount = saveActionCountAfter - saveActionCountBefore
+  , storeStats_saveBytesCount = saveBytesCountAfter - saveBytesCountBefore
   , storeStats_cacheCount = cacheCountAfter - cacheCountBefore
   , storeStats_cacheActionCount = cacheActionCountAfter - cacheActionCountBefore
   , storeStats_cacheNewValueCount = cacheNewValueCountAfter - cacheNewValueCountBefore
@@ -90,23 +102,29 @@ instance Store s => Store (StatStore s) where
       { storeStats_saveCount = saveCount + 1
       }
     storeSave store key $ do
+      value <- io
       atomically $ modifyTVar' statsVar $ \stats@StoreStats
         { storeStats_saveActionCount = saveActionCount
+        , storeStats_saveBytesCount = saveBytesCount
         } -> stats
         { storeStats_saveActionCount = saveActionCount + 1
+        , storeStats_saveBytesCount = saveBytesCount + BL.length value
         }
-      io
+      return value
 
   storeLoad StatStore
     { statStore_store = store
     , statStore_statsVar = statsVar
     } key = do
+    value <- storeLoad store key
     atomically $ modifyTVar' statsVar $ \stats@StoreStats
       { storeStats_loadCount = loadCount
+      , storeStats_loadBytesCount = loadBytesCount
       } -> stats
       { storeStats_loadCount = loadCount + 1
+      , storeStats_loadBytesCount = loadBytesCount + BL.length value
       }
-    storeLoad store key
+    return value
 
 instance MemoStore s => MemoStore (StatStore s) where
   memoStoreCache StatStore
