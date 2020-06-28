@@ -29,7 +29,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as BS
 import Data.Int
-import Data.Maybe
 import qualified Data.Serialize as S
 import Data.String
 import qualified Data.Vector as V
@@ -48,9 +47,13 @@ data Item
     { item_path :: {-# UNPACK #-} !Key
     , item_value :: Value
     }
-  | NodeItem
+  | InlineNodeItem
     { item_path :: {-# UNPACK #-} !Key
-    , item_node :: Node -- stored either inline or hash only
+    , item_node :: Node
+    }
+  | ExternalNodeItem
+    { item_path :: {-# UNPACK #-} !Key
+    , item_node :: Node
     }
 
 instance Encodable Item where
@@ -62,22 +65,24 @@ instance Encodable Item where
       S.putWord8 0
       S.put path
       S.put value
-    NodeItem
+    InlineNodeItem
       { item_path = path
       , item_node = Node
-        { node_maybeHash = nodeMaybeHash
-        , node_encoded = nodeEncoded
+        { node_encoded = nodeEncoded
         }
       } -> do
       S.putWord8 1
       S.put path
-      case nodeMaybeHash of
-        Nothing -> do
-          S.putWord8 0
-          S.putLazyByteString nodeEncoded
-        Just nodeHash -> do
-          S.putWord8 1
-          encode nodeHash
+      S.putLazyByteString nodeEncoded
+    ExternalNodeItem
+      { item_path = path
+      , item_node = Node
+        { node_hash = nodeHash
+        }
+      } -> do
+      S.putWord8 2
+      S.put path
+      encode nodeHash
   decode = do
     itemType <- S.getWord8
     case itemType of
@@ -90,27 +95,22 @@ instance Encodable Item where
           }
       1 -> do
         path <- S.get
-        nodeType <- S.getWord8
-        case nodeType of
-          -- inline node
-          0 -> do
-            node <- decode
-            return NodeItem
-              { item_path = path
-              , item_node = node
-              }
-          -- external node
-          1 -> do
-            nodeHash <- decode
-            return NodeItem
-              { item_path = path
-              , item_node = Node
-                { node_maybeHash = Just nodeHash
-                , node_items = error "items: NodeItem not loaded"
-                , node_encoded = error "encoded: NodeItem not loaded"
-                }
-              }
-          _ -> fail "wrong item node type"
+        node <- decode
+        return InlineNodeItem
+          { item_path = path
+          , item_node = node
+          }
+      2 -> do
+        path <- S.get
+        nodeHash <- decode
+        return ExternalNodeItem
+          { item_path = path
+          , item_node = Node
+            { node_hash = nodeHash
+            , node_items = error "node_items: ExternalNodeItem not loaded"
+            , node_encoded = error "node_encoded: ExternalNodeItem not loaded"
+            }
+          }
       _ -> fail "wrong item type"
 
 -- | Node.
@@ -120,8 +120,8 @@ instance Encodable Item where
 -- At most one item is allowed to have empty path, and it should be ValueItem.
 -- Items are sorted by path.
 data Node = Node
-  { node_maybeHash :: Maybe StoreKey
-  , node_items :: V.Vector Item -- stored
+  { node_hash :: StoreKey
+  , node_items :: V.Vector Item
   , node_encoded :: BL.ByteString
   }
 
@@ -132,89 +132,76 @@ instance Encodable Node where
   decode = itemsToNode <$> decode
 
 instance Persistable Node where
-  save store node@Node
-    { node_items = items
+  save store Node
+    { node_hash = nodeHash
+    , node_items = items
     , node_encoded = nodeEncoded
-    } = storeSave store (hashOfNode node) $ do
+    } = storeSave store nodeHash $ do
     V.forM_ items $ \case
-      NodeItem
-        { item_node = itemNode@Node
-          { node_maybeHash = Just _
-          }
+      ExternalNodeItem
+        { item_node = itemNode
         } -> save store itemNode
       _ -> return ()
     return nodeEncoded
   load store hash = do
     node@Node
-      { node_items = items
-      } <- either fail (return . ensureNodeHash) . S.runGetLazy decode =<< storeLoad store hash
-    let
-      calculatedHash = hashOfNode node
-    unless (calculatedHash == hash) $ fail "node hash is wrong"
+      { node_hash = nodeHash
+      , node_items = items
+      } <- either fail return . S.runGetLazy decode =<< storeLoad store hash
+    unless (nodeHash == hash) $ fail "node hash is wrong"
     let
       hydrateItems = V.map $ \item -> case item of
         ValueItem {} -> item
-        NodeItem
+        InlineNodeItem
           { item_node = subNode@Node
-            { node_maybeHash = itemNodeMaybeHash
-            , node_items = subItems
+            { node_items = subItems
             }
-          } -> case itemNodeMaybeHash of
-          Just itemNodeHash -> item
-            { item_node = unsafePerformIO $ load store itemNodeHash
+          } -> item
+          { item_node = subNode
+            { node_items = hydrateItems subItems
             }
-          Nothing -> item
-            { item_node = subNode
-              { node_items = hydrateItems subItems
+          }
+        ExternalNodeItem
+          { item_node = subNode@Node
+            { node_hash = itemNodeHash
+            }
+          } -> item
+          { item_node = let
+            Node
+              { node_items = loadedNodeItems
+              , node_encoded = loadedNodeEncoded
+              } = unsafePerformIO $ load store itemNodeHash
+            in subNode
+              { node_items = loadedNodeItems
+              , node_encoded = loadedNodeEncoded
               }
-            }
+          }
     return node
       { node_items = hydrateItems items
       }
 
 data Trie
-  = Trie Node
-  | EmptyTrie
+  = EmptyTrie
+  | Trie Node
 
 itemsToNode :: V.Vector Item -> Node
-itemsToNode items = finalizeNode node where
+itemsToNode items = node where
   node = Node
-    { node_maybeHash = Nothing
+    { node_hash = StoreKey $ BS.toShort $ BA.convert h
     , node_items = items
-    , node_encoded = S.runPutLazy $ encode node
+    , node_encoded = nodeEncoded
     }
+  nodeEncoded = S.runPutLazy $ encode node
+  h :: C.Digest C.SHA256
+  h = C.hashlazy nodeEncoded
 
 maxInlineNodeSize :: Int64
 maxInlineNodeSize = 4096
 
--- | Finalize node.
--- Add encoded representation and hash if needed.
-finalizeNode :: Node -> Node
-finalizeNode node@Node
+isNodeBig :: Node -> Bool
+isNodeBig Node
   { node_encoded = nodeEncoded
-  } = node
-  { node_maybeHash = if BL.length nodeEncoded > maxInlineNodeSize
-    then Just (hashOfNode node)
-    else Nothing
-  }
-
--- | Calculate hash of node.
-hashOfNode :: Node -> StoreKey
-hashOfNode Node
-  { node_maybeHash = maybeHash
-  , node_encoded = nodeEncoded
-  } = fromMaybe (StoreKey $ BS.toShort $ BA.convert h) maybeHash where
-  h :: C.Digest C.SHA256
-  h = C.hashlazy nodeEncoded
-
-ensureNodeHash :: Node -> Node
-ensureNodeHash node@Node
-  { node_maybeHash = maybeHash
-  } = case maybeHash of
-  Just _ -> node
-  Nothing -> node
-    { node_maybeHash = Just $ hashOfNode node
-    }
+  } = BL.length nodeEncoded > maxInlineNodeSize
 
 emptyTrie :: Trie
 emptyTrie = EmptyTrie
@@ -229,8 +216,10 @@ singletonNode key value = itemsToNode $ V.singleton ValueItem
   }
 
 trieHash :: Trie -> StoreKey
-trieHash (Trie node) = hashOfNode node
 trieHash EmptyTrie = StoreKey mempty
+trieHash (Trie Node
+  { node_hash = nodeHash
+  }) = nodeHash
 
 trieToItems :: Trie -> [(Key, Value)]
 trieToItems EmptyTrie = []
@@ -242,7 +231,11 @@ trieToItems (Trie node) = unpackNode mempty node where
       { item_path = path
       , item_value = value
       } = [(prefix <> path, value)]
-    unpackItem NodeItem
+    unpackItem InlineNodeItem
+      { item_path = path
+      , item_node = subNode
+      } = unpackNode (prefix <> path) subNode
+    unpackItem ExternalNodeItem
       { item_path = path
       , item_node = subNode
       } = unpackNode (prefix <> path) subNode
@@ -254,22 +247,16 @@ memoize :: (Store s, MemoStore ms) => s -> ms -> StoreKey -> Node -> Node
 memoize store memoStore memoHash node = unsafePerformIO $ do
   -- ensure node is stored and get hash
   r <- memoStoreCache memoStore memoHash $ do
-    case node_maybeHash node of
-      -- if node has a hash
-      Just nodeHash -> do
-        -- persist node first
-        save store node
-        -- return hash
-        return (Just $ unStoreKey nodeHash, Left nodeHash)
-      -- otherwise node is inline
-      Nothing -> return (Nothing, Right node)
+    save store node
+    let
+      nodeHash = node_hash node
+    return (Just $ unStoreKey nodeHash, nodeHash)
+
   case r of
     -- hash loaded from cache, load node
     Left nodeHash -> load store $ StoreKey nodeHash
-    -- normal node was built, reload it by hash
-    Right (Left nodeHash) -> load store nodeHash
-    -- inline node was built, use it
-    Right (Right newNode) -> return newNode
+    -- node was built, reload it by hash
+    Right nodeHash -> load store nodeHash
 
 -- | Merge tries.
 mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> V.Vector Trie -> Trie
@@ -279,8 +266,8 @@ mergeTries store memoStore foldFunc tries = if V.null nodes
   where
     nodes = V.mapMaybe trieToNode tries
     trieToNode = \case
-      Trie node -> Just node
       EmptyTrie -> Nothing
+      Trie node -> Just node
 
 -- | Merge non-zero number of nodes.
 mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> Key -> V.Vector Node -> Node
@@ -293,7 +280,7 @@ mergeNodes store memoStore foldFunc@Func
     S.putWord8 OP_MERGE_NODES
     S.put foldKey
     S.put pathPrefix
-    mapM_ (encode . hashOfNode) rootNodes
+    mapM_ (encode . node_hash) rootNodes
 
   mergedNode = itemsToNode $ V.fromList $ step rootItemsLists
 
@@ -340,21 +327,41 @@ mergeNodes store memoStore foldFunc@Func
             maxPrefix = BS.pack $ V.foldl1 sharedPrefix $ V.map (BS.unpack . unKey . item_path) currentItems
             maxPrefixLength = BS.length maxPrefix
 
+            -- remove prefix from path
+            dropPathPrefix = Key . BS.pack . drop maxPrefixLength . BS.unpack . unKey
             -- remove prefix from item path
             dropItemPathPrefix item = item
-              { item_path = Key $ BS.pack $ drop maxPrefixLength $ BS.unpack $ unKey $ item_path item
+              { item_path = dropPathPrefix $ item_path item
               }
 
-            -- pack item into node, cutting of prefix
+            -- pack item into node, cutting off prefix
             packItem item = case item of
-              -- explode node items with zero prefix
-              NodeItem
+              -- explode internal node items
+              InlineNodeItem
+                { item_path = path
+                , item_node = Node
+                  { node_items = subItems
+                  }
+                } -> let
+                explodeSubItem prefix = \case
+                  InlineNodeItem
+                    { item_path = subPath
+                    , item_node = Node
+                      { node_items = subSubItems
+                      }
+                    } -> V.concatMap (explodeSubItem $ prefix <> subPath) subSubItems
+                  subItem -> V.singleton $ itemsToNode $ V.singleton subItem
+                    { item_path = prefix <> item_path subItem
+                    }
+                in V.concatMap (explodeSubItem $ dropPathPrefix path) subItems
+              -- explode external node items with zero prefix
+              ExternalNodeItem
                 { item_path = Key path
                 , item_node = Node
                   { node_items = subItems
                   }
-                } | BS.length path == maxPrefixLength -> itemsToNode subItems
-              _ -> itemsToNode $ V.singleton $ dropItemPathPrefix item
+                } | BS.length path == maxPrefixLength -> V.singleton $ itemsToNode subItems
+              _ -> V.singleton $ itemsToNode $ V.singleton $ dropItemPathPrefix item
 
             -- if prefix is zero
             in if maxPrefixLength == 0
@@ -367,18 +374,28 @@ mergeNodes store memoStore foldFunc@Func
               else let
                 mergedSubNode@Node
                   { node_items = mergedSubNodeItems
-                  } = mergeNodes store memoStore foldFunc (pathPrefix <> Key maxPrefix) (V.map packItem currentItems)
+                  } = mergeNodes store memoStore foldFunc (pathPrefix <> Key maxPrefix) (V.concatMap packItem currentItems)
                 mergedItem = case V.head mergedSubNodeItems of
                   -- do not wrap the only NodeItem into another item
-                  subItem@NodeItem
+                  subItem@InlineNodeItem
                     { item_path = path
                     } | V.length mergedSubNodeItems == 1 -> subItem
                     { item_path = Key maxPrefix <> path
                     }
-                  _ -> NodeItem
-                    { item_path = Key maxPrefix
-                    , item_node = mergedSubNode
+                  subItem@ExternalNodeItem
+                    { item_path = path
+                    } | V.length mergedSubNodeItems == 1 -> subItem
+                    { item_path = Key maxPrefix <> path
                     }
+                  _ -> if isNodeBig mergedSubNode
+                    then ExternalNodeItem
+                      { item_path = Key maxPrefix
+                      , item_node = mergedSubNode
+                      }
+                    else InlineNodeItem
+                      { item_path = Key maxPrefix
+                      , item_node = mergedSubNode
+                      }
                 in mergedItem : nextStep
 
       Nothing -> []
@@ -386,8 +403,8 @@ mergeNodes store memoStore foldFunc@Func
 
 sortTrie :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Trie -> Trie
 sortTrie store memoStore transformFunc foldFunc = \case
-  Trie rootNode -> Trie $ sortNode store memoStore transformFunc foldFunc mempty rootNode
   EmptyTrie -> EmptyTrie
+  Trie rootNode -> Trie $ sortNode store memoStore transformFunc foldFunc mempty rootNode
 
 sortNode :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Key -> Node -> Node
 sortNode store memoStore transformFunc@Func
@@ -395,8 +412,9 @@ sortNode store memoStore transformFunc@Func
   , func_func = transform
   } foldFunc@Func
   { func_key = foldKey
-  } pathPrefix rootNode@Node
-  { node_items = items
+  } pathPrefix Node
+  { node_hash = rootNodeHash
+  , node_items = items
   } = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert sortOpHash) sortedNode where
   sortOpHash :: C.Digest C.SHA256
   sortOpHash = C.hashlazy $ S.runPutLazy $ do
@@ -404,19 +422,25 @@ sortNode store memoStore transformFunc@Func
     S.put transformKey
     S.put foldKey
     S.put pathPrefix
-    encode $ hashOfNode rootNode
+    encode rootNodeHash
 
-  sortedNode = mergeNodes store memoStore foldFunc mempty $ V.map sortItem items
+  sortedNode = mergeNodes store memoStore foldFunc mempty $ V.concatMap (sortItem pathPrefix) items
 
-  sortItem = \case
+  sortItem itemPathPrefix = \case
     ValueItem
       { item_path = path
       , item_value = value
-      } -> uncurry singletonNode $ transform (pathPrefix <> path) value
-    NodeItem
+      } -> V.singleton $ uncurry singletonNode $ transform (itemPathPrefix <> path) value
+    InlineNodeItem
+      { item_path = path
+      , item_node = Node
+        { node_items = subItems
+        }
+      } -> V.concatMap (sortItem (itemPathPrefix <> path)) subItems
+    ExternalNodeItem
       { item_path = path
       , item_node = node
-      } -> sortNode store memoStore transformFunc foldFunc (pathPrefix <> path) node
+      } -> V.singleton $ sortNode store memoStore transformFunc foldFunc (itemPathPrefix <> path) node
 
 
 data Func a = Func
@@ -479,20 +503,21 @@ checkNode :: Node -> Bool
 checkNode = checkNode' True
 
 checkNode' :: Bool -> Node -> Bool
-checkNode' isRoot node@Node
-  { node_maybeHash = maybeHash
-  , node_items = items
+checkNode' isRoot Node
+  { node_items = items
   }
-  =  maybeHash == node_maybeHash (finalizeNode node)
   -- non-zero number of items
-  && not (V.null items)
+  =  not (V.null items)
   -- items must be sorted by paths, and paths must be different by first letter
   && fst (V.foldl' (\(ok, maybePrevPath) (item_path -> path) -> (ok && maybe True (`pathsOrdered` path) maybePrevPath, Just path)) (True, Nothing) items)
   -- empty-key item must be ValueItem
   -- only item in non-root node must be ValueItem
   && (
     case V.head items of
-      NodeItem
+      InlineNodeItem
+        { item_path = Key path
+        } | (BS.null path || V.length items == 1 && not isRoot) -> False
+      ExternalNodeItem
         { item_path = Key path
         } | (BS.null path || V.length items == 1 && not isRoot) -> False
       _ -> True
@@ -500,9 +525,12 @@ checkNode' isRoot node@Node
   -- recurse into subnodes
   && V.all (\case
     ValueItem {} -> True
-    NodeItem
+    InlineNodeItem
       { item_node = subNode
-      } -> checkNode' False subNode
+      } -> not (isNodeBig subNode) && checkNode' False subNode
+    ExternalNodeItem
+      { item_node = subNode
+      } -> isNodeBig subNode && checkNode' False subNode
     ) items
   where
     pathsOrdered p1 p2 = maybeFirstByte p1 < maybeFirstByte p2
@@ -515,11 +543,11 @@ debugPrintTrie EmptyTrie = putStrLn "empty-trie"
 
 debugPrintNode :: Int -> Node -> IO ()
 debugPrintNode space Node
-  { node_maybeHash = maybeHash
+  { node_hash = nodeHash
   , node_items = items
   } = do
   debugPrintSpace space
-  print maybeHash
+  print nodeHash
   mapM_ (debugPrintItem (space + 1)) items
 
 debugPrintItem :: Int -> Item -> IO ()
@@ -531,10 +559,15 @@ debugPrintItem space item = do
     ValueItem
       { item_value = value
       } -> print value
-    NodeItem
+    InlineNodeItem
       { item_node = node
       } -> do
-      putStrLn "node"
+      putStrLn "inline_node"
+      debugPrintNode (space + 1) node
+    ExternalNodeItem
+      { item_node = node
+      } -> do
+      putStrLn "external_node"
       debugPrintNode (space + 1) node
 
 debugPrintSpace :: Int -> IO ()
