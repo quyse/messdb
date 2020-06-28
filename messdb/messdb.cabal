@@ -18,6 +18,7 @@ library
     MessDB.Store.Debug
     MessDB.Store.File
     MessDB.Store.Memory
+    MessDB.Store.Stat
     MessDB.Table
     MessDB.Table.Types
     MessDB.Trie
