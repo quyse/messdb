@@ -31,11 +31,11 @@ spec = describe "Trie" $ do
     trie <- arbitraryTrie (0, 100) 3
     mergeCount <- choose (0, 50)
     return $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast (V.replicate mergeCount trie)
-  it "Sort random trie 1" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 3) 3
-  it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (50, 100) 3
-  it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (100, 200) 3
-  it "Sort random trie 4" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (0, 100) 26
-  it "Sort random trie 5" $ property $ checkTrie . checkedTrieSort transformValueToKey foldToLast <$> arbitraryTrie (100, 1000) 26
+  it "Sort random trie 1" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 3) 3
+  it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (50, 100) 3
+  it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 200) 3
+  it "Sort random trie 4" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 100) 26
+  it "Sort random trie 5" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 1000) 26
 
 checkedTrieSort :: TransformFunc -> FoldFunc -> Trie -> Trie
 checkedTrieSort transformFunc@Func
@@ -47,10 +47,10 @@ checkedTrieSort transformFunc@Func
   sortedItems = M.toAscList $ V.foldl (\m (k, v) -> M.alter (maybe (Just v) (\v' -> Just $ fold k v' v)) k m) M.empty $ V.map (uncurry transform) items
   in printFailedTrie sortedItems $ checkedTrieItems sortedItems $ sortTrie testMemoryStore testMemoryStore transformFunc foldFunc trie
 
-transformValueToKey :: TransformFunc
-transformValueToKey = Func
-  { func_key = "value_to_key"
-  , func_func = \_k v -> (Key $ BS.toShort v, v)
+testTransform :: TransformFunc
+testTransform = Func
+  { func_key = "test_transform"
+  , func_func = \(Key k) v -> (Key $ BS.toShort $ B.reverse (BS.fromShort k) <> B.reverse v, v)
   }
 
 checkedTrieItems :: [(Key, Value)] -> Trie -> Trie
