@@ -180,9 +180,9 @@ instance Persistable Node where
       { node_items = hydrateItems items
       }
 
-data Trie
-  = EmptyTrie
-  | Trie Node
+newtype Trie = Trie
+  { unTrie :: Node
+  }
 
 itemsToNode :: V.Vector Item -> Node
 itemsToNode items = node where
@@ -204,7 +204,10 @@ isNodeBig Node
   } = BL.length nodeEncoded > maxInlineNodeSize
 
 emptyTrie :: Trie
-emptyTrie = EmptyTrie
+emptyTrie = Trie emptyNode
+
+emptyNode :: Node
+emptyNode = itemsToNode V.empty
 
 singletonTrie :: Key -> Value -> Trie
 singletonTrie key value = Trie $ singletonNode key value
@@ -216,13 +219,11 @@ singletonNode key value = itemsToNode $ V.singleton ValueItem
   }
 
 trieHash :: Trie -> StoreKey
-trieHash EmptyTrie = StoreKey mempty
 trieHash (Trie Node
   { node_hash = nodeHash
   }) = nodeHash
 
 trieToItems :: Trie -> [(Key, Value)]
-trieToItems EmptyTrie = []
 trieToItems (Trie node) = unpackNode mempty node where
   unpackNode prefix Node
     { node_items = items
@@ -260,14 +261,7 @@ memoize store memoStore memoHash node = unsafePerformIO $ do
 
 -- | Merge tries.
 mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> V.Vector Trie -> Trie
-mergeTries store memoStore foldFunc tries = if V.null nodes
-  then EmptyTrie
-  else Trie $ mergeNodes store memoStore foldFunc mempty nodes
-  where
-    nodes = V.mapMaybe trieToNode tries
-    trieToNode = \case
-      EmptyTrie -> Nothing
-      Trie node -> Just node
+mergeTries store memoStore foldFunc = Trie . mergeNodes store memoStore foldFunc mempty . V.map unTrie
 
 -- | Merge non-zero number of nodes.
 mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> Key -> V.Vector Node -> Node
@@ -402,9 +396,7 @@ mergeNodes store memoStore foldFunc@Func
 
 
 sortTrie :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Trie -> Trie
-sortTrie store memoStore transformFunc foldFunc = \case
-  EmptyTrie -> EmptyTrie
-  Trie rootNode -> Trie $ sortNode store memoStore transformFunc foldFunc mempty rootNode
+sortTrie store memoStore transformFunc foldFunc = Trie . sortNode store memoStore transformFunc foldFunc mempty . unTrie
 
 sortNode :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Key -> Node -> Node
 sortNode store memoStore transformFunc@Func
@@ -496,8 +488,7 @@ maybeFirstByte (Key bytes) = if BS.null bytes
 -- Checking
 
 checkTrie :: Trie -> Bool
-checkTrie (Trie node) = checkNode node
-checkTrie EmptyTrie = True
+checkTrie = checkNode . unTrie
 
 checkNode :: Node -> Bool
 checkNode = checkNode' True
@@ -506,14 +497,15 @@ checkNode' :: Bool -> Node -> Bool
 checkNode' isRoot Node
   { node_items = items
   }
-  -- non-zero number of items
-  =  not (V.null items)
+  -- non-zero number of items in non-root node
+  =  (isRoot || not (V.null items))
   -- items must be sorted by paths, and paths must be different by first letter
   && fst (V.foldl' (\(ok, maybePrevPath) (item_path -> path) -> (ok && maybe True (`pathsOrdered` path) maybePrevPath, Just path)) (True, Nothing) items)
   -- empty-key item must be ValueItem
   -- only item in non-root node must be ValueItem
-  && (
-    case V.head items of
+  && (if V.null items
+    then True
+    else case V.head items of
       InlineNodeItem
         { item_path = Key path
         } | (BS.null path || V.length items == 1 && not isRoot) -> False
@@ -539,7 +531,6 @@ checkNode' isRoot Node
 
 debugPrintTrie :: Trie -> IO ()
 debugPrintTrie (Trie node) = debugPrintNode 0 node
-debugPrintTrie EmptyTrie = putStrLn "empty-trie"
 
 debugPrintNode :: Int -> Node -> IO ()
 debugPrintNode space Node

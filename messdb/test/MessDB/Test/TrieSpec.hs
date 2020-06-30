@@ -27,6 +27,8 @@ spec = describe "Trie" $ do
   it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 200) 3
   it "Random trie 4" $ property $ checkTrie <$> arbitraryTrie (0, 1000) 26
   it "Merge zero tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast []
+  it "Merge 2 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie]
+  it "Merge 3 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie, emptyTrie]
   it "Merge with itself" $ property $ do
     trie <- arbitraryTrie (0, 100) 3
     mergeCount <- choose (0, 50)

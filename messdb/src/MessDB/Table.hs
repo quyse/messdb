@@ -45,7 +45,7 @@ tableFoldFunc funcKey f = TableFoldFunc Func
   }
 
 emptyTable :: Table k v
-emptyTable = Table EmptyTrie
+emptyTable = Table emptyTrie
 
 singletonTable :: (TableKey k, TableValue v) => k -> v -> Table k v
 singletonTable key value = Table $ singletonTrie (encodeTableKey key) (encodeTableValue value)
