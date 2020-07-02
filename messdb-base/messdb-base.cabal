@@ -1,8 +1,8 @@
 cabal-version:       3.0
-name:                messdb
+name:                messdb-base
 version:             0.1.0.0
-synopsis:            Database with incremental materialized views without tracking changes
-description:         
+synopsis:            Base library of MessDB
+description:         Database with incremental materialized views without tracking changes
 license:             MIT
 license-file:        LICENSE
 author:              Alexander Bich <quyse0@gmail.com>
@@ -41,7 +41,7 @@ library
   ghc-options:         -Wall
   default-language:    Haskell2010
 
-test-suite messdb-spectest
+test-suite messdb-base-spectest
   type:                exitcode-stdio-1.0
   main-is:             Spec.hs
   other-modules:
@@ -56,7 +56,7 @@ test-suite messdb-spectest
     , containers
     , generic-arbitrary
     , hspec
-    , messdb
+    , messdb-base
     , text
     , vector
     , QuickCheck

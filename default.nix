@@ -3,7 +3,7 @@ rec {
   packages = nixpkgs.haskellPackages.override {
     overrides = with nixpkgs.haskell.lib; let
       sourceOverrides = packageSourceOverrides {
-        messdb = ./messdb;
+        messdb-base = ./messdb-base;
         messdb-lmdb = ./messdb-lmdb;
         messdb-schema = ./messdb-schema;
         messdb-sqlite = ./messdb-sqlite;

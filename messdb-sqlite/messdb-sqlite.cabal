@@ -21,7 +21,7 @@ library
   build-depends:
     base
     , bytestring
-    , messdb
+    , messdb-base
   extra-libraries:
     sqlite3
   ghc-options:         -Wall
@@ -39,7 +39,7 @@ test-suite messdb-sqlite-spectest
     base
     , bytestring
     , hspec
-    , messdb
+    , messdb-base
     , messdb-sqlite
     , stm
     , temporary

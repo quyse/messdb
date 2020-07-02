@@ -1,7 +1,7 @@
 resolver: lts-16.2
 
 packages:
-- messdb
+- messdb-base
 - messdb-lmdb
 - messdb-schema
 - messdb-sqlite
