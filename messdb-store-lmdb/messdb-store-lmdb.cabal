@@ -1,5 +1,5 @@
 cabal-version:       3.0
-name:                messdb-lmdb
+name:                messdb-store-lmdb
 version:             0.1.0.0
 synopsis:            LMDB-based backend for MessDB
 description:         
@@ -29,7 +29,7 @@ library
   extra-libraries:     stdc++
   default-language:    Haskell2010
 
-test-suite messdb-lmdb-spectest
+test-suite messdb-store-lmdb-spectest
   type:                exitcode-stdio-1.0
   main-is:             Spec.hs
   other-modules:
@@ -40,7 +40,7 @@ test-suite messdb-lmdb-spectest
     , bytestring
     , hspec
     , messdb-base
-    , messdb-lmdb
+    , messdb-store-lmdb
     , stm
     , temporary
   ghc-options:         -Wall

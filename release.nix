@@ -4,8 +4,8 @@ rec {
   touch = {
     inherit (packages)
       messdb-base
-      messdb-lmdb
-      messdb-sqlite
+      messdb-store-lmdb
+      messdb-store-sqlite
     ;
   };
 }

@@ -4,16 +4,16 @@ rec {
     overrides = with nixpkgs.haskell.lib; let
       sourceOverrides = packageSourceOverrides {
         messdb-base = ./messdb-base;
-        messdb-lmdb = ./messdb-lmdb;
         messdb-schema = ./messdb-schema;
-        messdb-sqlite = ./messdb-sqlite;
+        messdb-store-lmdb = ./messdb-store-lmdb;
+        messdb-store-sqlite = ./messdb-store-sqlite;
       };
 
       deps = self: super: {
-        messdb-lmdb = overrideCabal super.messdb-lmdb (attrs: {
+        messdb-store-lmdb = overrideCabal super.messdb-store-lmdb (attrs: {
           librarySystemDepends = [ nixpkgs.lmdb ];
         });
-        messdb-sqlite = overrideCabal super.messdb-sqlite (attrs: {
+        messdb-store-sqlite = overrideCabal super.messdb-store-sqlite (attrs: {
           librarySystemDepends = [ nixpkgs.sqlite ];
         });
       };
