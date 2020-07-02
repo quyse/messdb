@@ -37,11 +37,9 @@ test-suite messdb-store-sqlite-spectest
   hs-source-dirs:      test
   build-depends:
     base
-    , bytestring
     , hspec
-    , messdb-base
+    , messdb-base-testlib
     , messdb-store-sqlite
-    , stm
     , temporary
   ghc-options:         -Wall
   default-language:    Haskell2010

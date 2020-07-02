@@ -14,18 +14,19 @@ import System.IO.Unsafe(unsafePerformIO)
 import Test.Hspec
 import Test.QuickCheck
 
+import MessDB.Store.Memory
 import MessDB.Trie
-
-import MessDB.Test.Lib
 
 spec :: Spec
 spec = describe "Trie" $ do
   it "Empty trie" $ checkTrie emptyTrie
   it "Singleton trie" $ checkTrie $ singletonTrie "abc" "def"
+
   it "Random trie 1" $ property $ checkTrie <$> arbitraryTrie (0, 3) 3
   it "Random trie 2" $ property $ checkTrie <$> arbitraryTrie (50, 100) 3
   it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 200) 3
   it "Random trie 4" $ property $ checkTrie <$> arbitraryTrie (0, 1000) 26
+
   it "Merge zero tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast []
   it "Merge 2 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie]
   it "Merge 3 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie, emptyTrie]
@@ -33,6 +34,7 @@ spec = describe "Trie" $ do
     trie <- arbitraryTrie (0, 100) 3
     mergeCount <- choose (0, 50)
     return $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast (V.replicate mergeCount trie)
+
   it "Sort random trie 1" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 3) 3
   it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (50, 100) 3
   it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 200) 3
@@ -93,3 +95,7 @@ printFailedTrie a trie = if checkTrie trie
     debugPrintTrie trie
     putStrLn "END failed tree"
     return trie
+
+{-# NOINLINE testMemoryStore #-}
+testMemoryStore :: MemoryStore
+testMemoryStore = unsafePerformIO newMemoryStoreIO

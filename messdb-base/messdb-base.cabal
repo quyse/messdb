@@ -45,7 +45,6 @@ test-suite messdb-base-spectest
   type:                exitcode-stdio-1.0
   main-is:             Spec.hs
   other-modules:
-    MessDB.Test.Lib
     MessDB.Test.TableSpec
     MessDB.Test.TrieSpec
   hs-source-dirs:      test

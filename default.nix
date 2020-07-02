@@ -4,6 +4,7 @@ rec {
     overrides = with nixpkgs.haskell.lib; let
       sourceOverrides = packageSourceOverrides {
         messdb-base = ./messdb-base;
+        messdb-base-testlib = ./messdb-base-testlib;
         messdb-schema = ./messdb-schema;
         messdb-store-lmdb = ./messdb-store-lmdb;
         messdb-store-sqlite = ./messdb-store-sqlite;
