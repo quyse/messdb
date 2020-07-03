@@ -1,0 +1,28 @@
+cabal-version:       3.0
+name:                messdb-repo
+version:             0.1.0.0
+synopsis:            Repository of MessDB
+description:         Database with incremental materialized views without tracking changes
+license:             MIT
+license-file:        LICENSE
+author:              Alexander Bich <quyse0@gmail.com>
+maintainer:          Alexander Bich <quyse0@gmail.com>
+copyright:           (c) 2020 Alexander Bich
+category:            Database
+stability:           experimental
+build-type:          Simple
+
+library
+  exposed-modules:
+    MessDB.Repo
+    MessDB.Repo.Memory
+  hs-source-dirs:      src
+  build-depends:
+    base
+    , cereal
+    , messdb-base
+    , messdb-schema
+    , stm
+    , text
+  ghc-options:         -Wall
+  default-language:    Haskell2010

@@ -3,6 +3,7 @@ resolver: lts-16.2
 packages:
 - messdb-base
 - messdb-base-testlib
+- messdb-repo
 - messdb-schema
 - messdb-store-lmdb
 - messdb-store-sqlite

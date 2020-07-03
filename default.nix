@@ -5,6 +5,7 @@ rec {
       sourceOverrides = packageSourceOverrides {
         messdb-base = ./messdb-base;
         messdb-base-testlib = ./messdb-base-testlib;
+        messdb-repo = ./messdb-repo;
         messdb-schema = ./messdb-schema;
         messdb-store-lmdb = ./messdb-store-lmdb;
         messdb-store-sqlite = ./messdb-store-sqlite;
