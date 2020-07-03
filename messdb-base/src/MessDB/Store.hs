@@ -20,7 +20,7 @@ import qualified Data.Vector as V
 
 newtype StoreKey = StoreKey
   { unStoreKey :: BS.ShortByteString
-  } deriving (Eq, Hashable)
+  } deriving (Eq, Hashable, S.Serialize)
 
 instance Show StoreKey where
   show = storeKeyToString

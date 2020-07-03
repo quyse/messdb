@@ -2,6 +2,9 @@
 
 module MessDB.Table
   ( Table(..)
+  , tableHash
+  , TableKey(..)
+  , TableValue
   , TableTransformFunc(..)
   , tableTransformFunc
   , TableFoldFunc(..)
@@ -25,6 +28,9 @@ import MessDB.Trie
 newtype Table k v = Table
   { unTable :: Trie
   }
+
+tableHash :: Table k v -> StoreKey
+tableHash = trieHash . unTable
 
 newtype TableTransformFunc k v k' v' = TableTransformFunc TransformFunc
 
