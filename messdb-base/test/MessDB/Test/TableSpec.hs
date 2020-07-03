@@ -28,14 +28,15 @@ spec = describe "Table" $ do
   tableKeySpec "Word32" (Proxy :: Proxy Word32)
   tableKeySpec "Word16" (Proxy :: Proxy Word16)
   tableKeySpec "Word8" (Proxy :: Proxy Word8)
-  tableKeySpec "ByteString" (Proxy :: Proxy B.ByteString)
-  tableKeySpec "Text" (Proxy :: Proxy T.Text)
   tableKeySpec "Float" (Proxy :: Proxy Float)
   tableKeySpec "Double" (Proxy :: Proxy Double)
+  tableKeySpec "ByteString" (Proxy :: Proxy B.ByteString)
+  tableKeySpec "Text" (Proxy :: Proxy T.Text)
 
 tableKeySpec :: (TableKey k, Arbitrary k) => String -> Proxy k -> Spec
 tableKeySpec name p = describe name $ do
   describe "scalar" $ f p arbitrary
+  describe "maybe" $ fm p arbitrary
   describe "pair" $ f2 p arbitrary
   describe "triple" $ f3 p arbitrary
   describe "struct1" $ fs1 p arbitrary
@@ -55,6 +56,9 @@ tableKeySpec name p = describe name $ do
         a' = S.runPut $ putTableKey a
         b' = S.runPut $ putTableKey b
       return $ compare a b == compare a' b'
+
+  fm :: (TableKey k, Arbitrary k) => Proxy k -> Gen (Maybe k) -> Spec
+  fm Proxy = f Proxy
 
   f2 :: (TableKey k, Arbitrary k) => Proxy k -> Gen (k, k) -> Spec
   f2 Proxy = f Proxy

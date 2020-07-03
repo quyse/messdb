@@ -185,6 +185,7 @@ instance TableKey T.Text where
 
 -- Considering TableKey properies, generic tuples/structs are easy.
 
+instance TableKey a => TableKey (Maybe a)
 instance (TableKey a, TableKey b) => TableKey (a, b)
 instance (TableKey a, TableKey b, TableKey c) => TableKey (a, b, c)
 instance (TableKey a, TableKey b, TableKey c, TableKey d) => TableKey (a, b, c, d)
@@ -238,6 +239,10 @@ instance (GenericConstructorTableKey a, GenericConstructorTableKey b) => Generic
   countGenericConstructorTableKey = q Proxy Proxy where
     q :: (GenericConstructorTableKey a, GenericConstructorTableKey b) => Proxy a -> Proxy b -> Proxy (a G.:+: b) -> Word32
     q a b Proxy = countGenericConstructorTableKey a + countGenericConstructorTableKey b
+
+instance GenericSelectorTableKey G.U1 where
+  putGenericSelectorTableKey G.U1 = return ()
+  getGenericSelectorTableKey = return G.U1
 
 instance GenericValueTableKey f => GenericSelectorTableKey (G.M1 G.S c f) where
   putGenericSelectorTableKey = putGenericValueTableKey . G.unM1

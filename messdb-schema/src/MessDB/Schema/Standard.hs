@@ -35,6 +35,7 @@ data StandardSchema
   | StandardSchema_Double
   | StandardSchema_ByteString
   | StandardSchema_Text
+  | StandardSchema_Maybe !StandardSchema
   | StandardSchema_Tuple2 !StandardSchema !StandardSchema
   | StandardSchema_Tuple3 !StandardSchema !StandardSchema !StandardSchema
   | StandardSchema_Tuple4 !StandardSchema !StandardSchema !StandardSchema !StandardSchema
@@ -65,6 +66,9 @@ instance SchemaEncoding StandardSchema where
       StandardSchema_Double -> packWithConstraint (Proxy :: Proxy Double)
       StandardSchema_ByteString -> packWithConstraint (Proxy :: Proxy B.ByteString)
       StandardSchema_Text -> packWithConstraint (Proxy :: Proxy T.Text)
+      StandardSchema_Maybe e -> do
+        Schema p <- decode e
+        packWithConstraint $ liftM Just p
       StandardSchema_Tuple2 e1 e2 -> do
         Schema p1 <- decode e1
         Schema p2 <- decode e2
@@ -128,6 +132,8 @@ instance StandardSchemaType B.ByteString where
   standardSchema Proxy = StandardSchema_ByteString
 instance StandardSchemaType T.Text where
   standardSchema Proxy = StandardSchema_Text
+instance StandardSchemaType a => StandardSchemaType (Maybe a) where
+  standardSchema Proxy = StandardSchema_Maybe (standardSchema (Proxy :: Proxy a))
 instance (StandardSchemaType a, StandardSchemaType b) => StandardSchemaType (a, b) where
   standardSchema Proxy = StandardSchema_Tuple2
     (standardSchema (Proxy :: Proxy a))
