@@ -20,6 +20,7 @@ library
     MessDB.Store.Memory
     MessDB.Store.Stat
     MessDB.Table
+    MessDB.Table.Row
     MessDB.Table.Types
     MessDB.Trie
   hs-source-dirs:      src

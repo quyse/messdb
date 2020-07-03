@@ -28,6 +28,7 @@ import qualified GHC.Generics as G
 import GHC.Float
 import System.IO.Unsafe
 
+import MessDB.Table.Row
 import MessDB.Trie
 
 -- | Serialization for keys.
@@ -69,6 +70,11 @@ decodeTableValue = either error id . S.runGet getTableValue
 -- Keys are always compared as bytestrings, so we should be careful with encodings.
 
 
+instance TableKey () where
+  putTableKey () = return ()
+  getTableKey = return ()
+
+
 -- For integer keys, big endian encoding is necessary.
 -- Signed numbers must also be rebalanced into positive range, because two's complement won't work.
 
@@ -103,6 +109,14 @@ instance TableKey Word16 where
 instance TableKey Word8 where
   putTableKey = S.putWord8
   getTableKey = S.getWord8
+
+instance (TableKey a, TableKey b) => TableKey (Row n a b) where
+  putTableKey (Row a b) = do
+    putTableKey a
+    putTableKey b
+  getTableKey = Row
+    <$> getTableKey
+    <*> getTableKey
 
 
 -- IEEE 754 floating-point numbers are almost comparable as-is: exponent goes first (in big-endian)

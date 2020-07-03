@@ -14,13 +14,16 @@ import qualified Data.Text as T
 import Data.Typeable
 import Data.Word
 import GHC.Generics(Generic)
+import GHC.TypeLits
 
 import MessDB.Schema
+import MessDB.Table.Row
 import MessDB.Table.Types
 
 -- | Representation of some standard set of types.
 data StandardSchema
-  = StandardSchema_Int64
+  = StandardSchema_Empty
+  | StandardSchema_Int64
   | StandardSchema_Int32
   | StandardSchema_Int16
   | StandardSchema_Int8
@@ -35,6 +38,7 @@ data StandardSchema
   | StandardSchema_Tuple2 !StandardSchema !StandardSchema
   | StandardSchema_Tuple3 !StandardSchema !StandardSchema !StandardSchema
   | StandardSchema_Tuple4 !StandardSchema !StandardSchema !StandardSchema !StandardSchema
+  | StandardSchema_Row !T.Text !StandardSchema !StandardSchema
   deriving Generic
 
 instance S.Serialize StandardSchema
@@ -48,6 +52,7 @@ instance SchemaEncoding StandardSchema where
   decodeSchema = decode where
     -- monomorphic
     decode = \case
+      StandardSchema_Empty -> packWithConstraint (Proxy :: Proxy ())
       StandardSchema_Int64 -> packWithConstraint (Proxy :: Proxy Int64)
       StandardSchema_Int32 -> packWithConstraint (Proxy :: Proxy Int32)
       StandardSchema_Int16 -> packWithConstraint (Proxy :: Proxy Int16)
@@ -75,6 +80,11 @@ instance SchemaEncoding StandardSchema where
         Schema p3 <- decode e3
         Schema p4 <- decode e4
         packWithConstraint $ liftM4 ((,,,)) p1 p2 p3 p4
+      StandardSchema_Row n ea eb -> do
+        SomeSymbol (Proxy :: Proxy pn) <- pure (someSymbolVal (T.unpack n))
+        Schema (Proxy :: Proxy pa) <- decode ea
+        Schema (Proxy :: Proxy pb) <- decode eb
+        packWithConstraint (Proxy :: Proxy (Row pn pa pb))
 
   constrainSchemaType = f Proxy Proxy where
     recode :: (StandardSchemaType a, StandardSchemaConstraint c) => Proxy a -> Proxy c -> Maybe (Schema StandardSchema c)
@@ -92,6 +102,8 @@ instance SchemaEncoding StandardSchema where
 class (Typeable t, TableKey t, S.Serialize t) => StandardSchemaType t where
   standardSchema :: Proxy t -> StandardSchema
 
+instance StandardSchemaType () where
+  standardSchema Proxy = StandardSchema_Empty
 instance StandardSchemaType Int64 where
   standardSchema Proxy = StandardSchema_Int64
 instance StandardSchemaType Int32 where
@@ -131,6 +143,11 @@ instance (StandardSchemaType a, StandardSchemaType b, StandardSchemaType c, Stan
     (standardSchema (Proxy :: Proxy b))
     (standardSchema (Proxy :: Proxy c))
     (standardSchema (Proxy :: Proxy d))
+instance (KnownSymbol n, StandardSchemaType a, StandardSchemaType b) => StandardSchemaType (Row n a b) where
+  standardSchema Proxy = StandardSchema_Row
+    (T.pack (symbolVal (Proxy :: Proxy n)))
+    (standardSchema (Proxy :: Proxy a))
+    (standardSchema (Proxy :: Proxy b))
 
 class StandardSchemaConstraint (c :: * -> Constraint) where
   packWithConstraint :: StandardSchemaType t => Proxy t -> Maybe (Schema StandardSchema c)
