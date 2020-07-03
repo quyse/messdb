@@ -96,10 +96,8 @@ extern "C" int messdb_sqlite_store_errored(SqliteStore* store)
 	return errored ? 1 : 0;
 }
 
-extern "C" int messdb_sqlite_store_key_exists(SqliteStore* store, void const* key, int keySize)
+int storeKeyExists(SqliteStore* store, sqlite3_stmt* stmt, void const* key, int keySize)
 {
-	sqlite3_stmt* stmt = store->stmtStoreKeyExists;
-
 	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
 	{
 		store->setError();
@@ -130,12 +128,10 @@ extern "C" int messdb_sqlite_store_key_exists(SqliteStore* store, void const* ke
 	return exists;
 }
 
-extern "C" void messdb_sqlite_store_get(SqliteStore* store, void const* key, int keySize, void const** const value, int* const valueSize)
+void storeGet(SqliteStore* store, sqlite3_stmt* stmt, void const* key, int keySize, void const** const value, int* const valueSize)
 {
 	*value = nullptr;
 	*valueSize = 0;
-
-	sqlite3_stmt* stmt = store->stmtStoreGet;
 
 	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
 	{
@@ -167,85 +163,48 @@ extern "C" void messdb_sqlite_store_get(SqliteStore* store, void const* key, int
 
 	sqlite3_reset(stmt);
 	sqlite3_clear_bindings(stmt);
+}
+
+void storeSet(SqliteStore* store, sqlite3_stmt* stmt, void const* key, int keySize, void const* value, int valueSize)
+{
+	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
+	{
+		store->setError();
+		return;
+	}
+	if(sqlite3_bind_blob(stmt, 2, value, valueSize, nullptr) != SQLITE_OK)
+	{
+		store->setError();
+		return;
+	}
+
+	if(sqlite3_step(stmt) != SQLITE_DONE) store->setError();
+
+	sqlite3_reset(stmt);
+	sqlite3_clear_bindings(stmt);
+}
+
+extern "C" int messdb_sqlite_store_key_exists(SqliteStore* store, void const* key, int keySize)
+{
+	return storeKeyExists(store, store->stmtStoreKeyExists, key, keySize);
+}
+
+extern "C" void messdb_sqlite_store_get(SqliteStore* store, void const* key, int keySize, void const** const value, int* const valueSize)
+{
+	storeGet(store, store->stmtStoreGet, key, keySize, value, valueSize);
 }
 
 extern "C" void messdb_sqlite_store_set(SqliteStore* store, void const* key, int keySize, void const* value, int valueSize)
 {
-	sqlite3_stmt* stmt = store->stmtStoreSet;
-
-	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
-	{
-		store->setError();
-		return;
-	}
-	if(sqlite3_bind_blob(stmt, 2, value, valueSize, nullptr) != SQLITE_OK)
-	{
-		store->setError();
-		return;
-	}
-
-	if(sqlite3_step(stmt) != SQLITE_DONE) store->setError();
-
-	sqlite3_reset(stmt);
-	sqlite3_clear_bindings(stmt);
+	storeSet(store, store->stmtStoreSet, key, keySize, value, valueSize);
 }
 
 extern "C" void messdb_sqlite_memo_store_get(SqliteStore* store, void const* key, int keySize, void const** const value, int* const valueSize)
 {
-	*value = nullptr;
-	*valueSize = 0;
-
-	sqlite3_stmt* stmt = store->stmtMemoStoreGet;
-
-	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
-	{
-		store->setError();
-		return;
-	}
-
-	for(bool stop = false; !stop; )
-	{
-		switch(sqlite3_step(stmt))
-		{
-		case SQLITE_ROW:
-			{
-				void const* data = sqlite3_column_blob(stmt, 0);
-				int size = sqlite3_column_bytes(stmt, 0);
-				*value = messdb_sqlite_store_create_blob(data, size);
-				*valueSize = size;
-			}
-			break;
-		case SQLITE_DONE:
-			stop = true;
-			break;
-		default:
-			stop = true;
-			store->setError();
-			break;
-		}
-	}
-
-	sqlite3_reset(stmt);
-	sqlite3_clear_bindings(stmt);
+	storeGet(store, store->stmtMemoStoreGet, key, keySize, value, valueSize);
 }
 
 extern "C" void messdb_sqlite_memo_store_set(SqliteStore* store, void const* key, int keySize, void const* value, int valueSize)
 {
-	sqlite3_stmt* stmt = store->stmtMemoStoreSet;
-
-	if(sqlite3_bind_blob(stmt, 1, key, keySize, nullptr) != SQLITE_OK)
-	{
-		store->setError();
-		return;
-	}
-	if(sqlite3_bind_blob(stmt, 2, value, valueSize, nullptr) != SQLITE_OK)
-	{
-		store->setError();
-		return;
-	}
-
-	if(sqlite3_step(stmt) != SQLITE_DONE) store->setError();
-
-	sqlite3_reset(stmt);
-	sqlite3_clear_bindings(stmt);
+	storeSet(store, store->stmtMemoStoreSet, key, keySize, value, valueSize);
 }
