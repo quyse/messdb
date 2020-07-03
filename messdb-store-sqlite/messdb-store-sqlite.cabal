@@ -22,6 +22,7 @@ library
     base
     , bytestring
     , messdb-base
+    , messdb-repo
   extra-libraries:
     sqlite3
   ghc-options:         -Wall

@@ -9,6 +9,8 @@ struct SqliteStore
 	sqlite3_stmt* stmtStoreSet = nullptr;
 	sqlite3_stmt* stmtMemoStoreGet = nullptr;
 	sqlite3_stmt* stmtMemoStoreSet = nullptr;
+	sqlite3_stmt* stmtRepoStoreGetRoot = nullptr;
+	sqlite3_stmt* stmtRepoStoreSetRoot = nullptr;
 	bool error = false;
 
 	~SqliteStore()
@@ -18,6 +20,8 @@ struct SqliteStore
 		if(stmtStoreSet) sqlite3_finalize(stmtStoreSet);
 		if(stmtMemoStoreGet) sqlite3_finalize(stmtMemoStoreGet);
 		if(stmtMemoStoreSet) sqlite3_finalize(stmtMemoStoreSet);
+		if(stmtRepoStoreGetRoot) sqlite3_finalize(stmtRepoStoreGetRoot);
+		if(stmtRepoStoreSetRoot) sqlite3_finalize(stmtRepoStoreSetRoot);
 		if(db) sqlite3_close(db);
 	}
 
@@ -56,6 +60,10 @@ CREATE TABLE IF NOT EXISTS memo_store \
 	( key BLOB PRIMARY KEY \
 	, value BLOB NOT NULL \
 	); \
+CREATE TABLE IF NOT EXISTS repo_root \
+	( key INT PRIMARY KEY \
+	, value BLOB NOT NULL \
+	); \
 ", nullptr, nullptr, nullptr) != SQLITE_OK)
 		return nullptr;
 
@@ -79,6 +87,14 @@ CREATE TABLE IF NOT EXISTS memo_store \
 	if(sqlite3_prepare_v3(store->db,
 		"INSERT INTO memo_store(key, value) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2",
 		-1, SQLITE_PREPARE_PERSISTENT, &store->stmtMemoStoreSet, nullptr) != SQLITE_OK)
+		return nullptr;
+	if(sqlite3_prepare_v3(store->db,
+		"SELECT value FROM repo_root WHERE key = 1",
+		-1, SQLITE_PREPARE_PERSISTENT, &store->stmtRepoStoreGetRoot, nullptr) != SQLITE_OK)
+		return nullptr;
+	if(sqlite3_prepare_v3(store->db,
+		"INSERT INTO repo_root(key, value) VALUES(1, ?1) ON CONFLICT(key) DO UPDATE SET value = ?1",
+		-1, SQLITE_PREPARE_PERSISTENT, &store->stmtRepoStoreSetRoot, nullptr) != SQLITE_OK)
 		return nullptr;
 
 	return store.release();
@@ -207,4 +223,53 @@ extern "C" void messdb_sqlite_memo_store_get(SqliteStore* store, void const* key
 extern "C" void messdb_sqlite_memo_store_set(SqliteStore* store, void const* key, int keySize, void const* value, int valueSize)
 {
 	storeSet(store, store->stmtMemoStoreSet, key, keySize, value, valueSize);
+}
+
+extern "C" void messdb_sqlite_repo_store_get_root(SqliteStore* store, void const** const value, int* const valueSize)
+{
+	sqlite3_stmt* stmt = store->stmtRepoStoreGetRoot;
+
+	*value = nullptr;
+	*valueSize = 0;
+
+	for(bool stop = false; !stop; )
+	{
+		switch(sqlite3_step(stmt))
+		{
+		case SQLITE_ROW:
+			{
+				void const* data = sqlite3_column_blob(stmt, 0);
+				int size = sqlite3_column_bytes(stmt, 0);
+				*value = messdb_sqlite_store_create_blob(data, size);
+				*valueSize = size;
+			}
+			break;
+		case SQLITE_DONE:
+			stop = true;
+			break;
+		default:
+			stop = true;
+			store->setError();
+			break;
+		}
+	}
+
+	sqlite3_reset(stmt);
+	sqlite3_clear_bindings(stmt);
+}
+
+extern "C" void messdb_sqlite_repo_store_set_root(SqliteStore* store, void const* value, int valueSize)
+{
+	sqlite3_stmt* stmt = store->stmtRepoStoreSetRoot;
+
+	if(sqlite3_bind_blob(stmt, 1, value, valueSize, nullptr) != SQLITE_OK)
+	{
+		store->setError();
+		return;
+	}
+
+	if(sqlite3_step(stmt) != SQLITE_DONE) store->setError();
+
+	sqlite3_reset(stmt);
+	sqlite3_clear_bindings(stmt);
 }

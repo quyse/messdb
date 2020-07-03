@@ -17,6 +17,7 @@ import Foreign.Marshal.Utils
 import Foreign.Ptr
 import Foreign.Storable
 
+import MessDB.Repo
 import MessDB.Store
 
 newtype SqliteStore = SqliteStore
@@ -82,6 +83,25 @@ instance MemoStore SqliteStore where
         valueSize <- fromIntegral <$> peek valueSizePtr
         Left . BS.toShort <$> B.unsafePackMallocCStringLen (valuePtr, valueSize)
 
+instance RepoStore SqliteStore where
+  repoStoreGetRoot store@SqliteStore
+    { sqliteStore_storePtr = storePtr
+    } = alloca $ \valuePtrPtr -> alloca $ \valueSizePtr -> do
+    c_repo_store_get_root storePtr valuePtrPtr valueSizePtr
+    checkStore store
+    valuePtr <- peek valuePtrPtr
+    if valuePtr == nullPtr
+      then throwIO SqliteStoreException_valueDoesNotExist
+      else do
+        valueSize <- fromIntegral <$> peek valueSizePtr
+        StoreKey . BS.toShort <$> B.unsafePackMallocCStringLen (valuePtr, valueSize)
+  repoStoreSetRoot store@SqliteStore
+    { sqliteStore_storePtr = storePtr
+    } (StoreKey root) = do
+    BS.useAsCStringLen root $ \(rootPtr, rootLen) ->
+      c_repo_store_set_root storePtr rootPtr (fromIntegral rootLen)
+    checkStore store
+
 checkStore :: SqliteStore -> IO ()
 checkStore SqliteStore
   { sqliteStore_storePtr = storePtr
@@ -111,4 +131,6 @@ foreign import ccall safe "messdb_sqlite_store_get" c_store_get :: Ptr C_SqliteS
 foreign import ccall safe "messdb_sqlite_store_set" c_store_set :: Ptr C_SqliteStore -> Ptr CChar -> CInt -> Ptr CChar -> CInt -> IO ()
 foreign import ccall safe "messdb_sqlite_memo_store_get" c_memo_store_get :: Ptr C_SqliteStore -> Ptr CChar -> CInt -> Ptr (Ptr CChar) -> Ptr CInt -> IO ()
 foreign import ccall safe "messdb_sqlite_memo_store_set" c_memo_store_set :: Ptr C_SqliteStore -> Ptr CChar -> CInt -> Ptr CChar -> CInt -> IO ()
+foreign import ccall safe "messdb_sqlite_repo_store_get_root" c_repo_store_get_root :: Ptr C_SqliteStore -> Ptr (Ptr CChar) -> Ptr CInt -> IO ()
+foreign import ccall safe "messdb_sqlite_repo_store_set_root" c_repo_store_set_root :: Ptr C_SqliteStore -> Ptr CChar -> CInt -> IO ()
 foreign export ccall "messdb_sqlite_store_create_blob" createBlob :: Ptr CChar -> CInt -> IO (Ptr CChar)
