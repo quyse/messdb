@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, DeriveGeneric, LambdaCase, ScopedTypeVariables, TypeFamilies, TypeOperators, ViewPatterns #-}
+{-# LANGUAGE ConstraintKinds, DeriveGeneric, LambdaCase, ScopedTypeVariables, TemplateHaskell, TypeFamilies, TypeOperators, ViewPatterns #-}
 
 module MessDB.Schema.Standard
   ( StandardSchema(..)
@@ -17,6 +17,7 @@ import GHC.Generics(Generic)
 import GHC.TypeLits
 
 import MessDB.Schema
+import MessDB.Schema.Util
 import MessDB.Table.Row
 import MessDB.Table.Types
 
@@ -42,7 +43,7 @@ data StandardSchema
   | StandardSchema_Row !T.Text !StandardSchema !StandardSchema
   deriving Generic
 
-instance S.Serialize StandardSchema
+genJsonSerialize ''StandardSchema
 
 instance SchemaEncoding StandardSchema where
   type SchemaTypeClass StandardSchema = StandardSchemaType

@@ -16,16 +16,19 @@ library
   exposed-modules:
     MessDB.Schema
     MessDB.Schema.Standard
+    MessDB.Schema.Util
     MessDB.Table
     MessDB.Table.Row
     MessDB.Table.Types
   hs-source-dirs:      src
   build-depends:
-    base
+    aeson
+    , base
     , bytestring
     , cereal
     , cereal-text
     , messdb-base
+    , template-haskell
     , text
     , vector
   ghc-options:         -Wall
