@@ -23,21 +23,22 @@ newtype RepoRoot e = RepoRoot (Table RepoTableName (RepoTable e))
 
 -- | Table in repository.
 data RepoTable e where
-  RepoTable :: (TableKey k, S.Serialize v, SchemaTypeClass e k, SchemaTypeClass e v) => Table k v -> RepoTable e
+  RepoTable :: (TableKey k, S.Serialize v, SchemaTypeClass e k, SchemaTypeClass e v) => TableRef k v -> RepoTable e
 
 instance (SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e S.Serialize) => S.Serialize (RepoTable e) where
-  put (RepoTable (Table trie :: Table k v)) = do
+  put (RepoTable (tableRef :: TableRef k v)) = do
     S.put (encodeSchema (Proxy :: Proxy k) :: e)
     S.put (encodeSchema (Proxy :: Proxy v) :: e)
-    S.put (trieHash trie)
+    encode tableRef
   get = do
     maybeKeySchema :: Maybe (Schema e TableKey) <- decodeSchema <$> (S.get :: S.Get e)
     maybeValueSchema :: Maybe (Schema e S.Serialize) <- decodeSchema <$> (S.get :: S.Get e)
-    h :: StoreKey <- S.get
     case (maybeKeySchema, maybeValueSchema) of
       (   Just (Schema (Proxy :: Proxy k) :: Schema e TableKey)
         , Just (Schema (Proxy :: Proxy v) :: Schema e S.Serialize)
-        ) -> return (RepoTable (Table (unsafeTrieFromHash h) :: Table k v) :: RepoTable e)
+        ) -> do
+        tableRef :: TableRef k v <- decode
+        return (RepoTable tableRef :: RepoTable e)
       _ -> fail "invalid schema"
 
 
