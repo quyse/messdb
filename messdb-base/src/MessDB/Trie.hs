@@ -184,7 +184,7 @@ instance Persistable Node where
 
 newtype Trie = Trie
   { unTrie :: Node
-  }
+  } deriving Persistable
 
 itemsToNode :: V.Vector Item -> Node
 itemsToNode items = node where

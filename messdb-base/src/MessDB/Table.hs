@@ -1,8 +1,11 @@
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, ViewPatterns #-}
 
 module MessDB.Table
   ( Table(..)
   , tableHash
+  , TableRef(..)
+  , refTable
+  , resolveTableRef
   , TableKey(..)
   , TableValue
   , TableTransformFunc(..)
@@ -27,10 +30,23 @@ import MessDB.Trie
 
 newtype Table k v = Table
   { unTable :: Trie
-  }
+  } deriving Persistable
 
 tableHash :: Table k v -> StoreKey
 tableHash = trieHash . unTable
+
+-- | Table ref is a reference to a table.
+newtype TableRef k v = TableRef
+  { unTableRef :: StoreKey
+  } deriving Encodable
+
+-- | Create ref to table.
+refTable :: Table k v -> TableRef k v
+refTable = TableRef . tableHash
+
+-- | Load table by ref.
+resolveTableRef :: Store s => s -> TableRef k v -> IO (Table k v)
+resolveTableRef store = fmap Table . load store . unTableRef
 
 newtype TableTransformFunc k v k' v' = TableTransformFunc TransformFunc
 
