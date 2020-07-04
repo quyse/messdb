@@ -3,25 +3,26 @@
 module MessDB.Schema
   ( Schema(..)
   , ConstrainedType(..)
+  , ConstrainedSchema(..)
   , SchemaEncoding(..)
-  , reconstrainSchema
-  , TableSchema(..)
+  , constrainSchema
   ) where
 
 import Data.Kind
 import Data.Proxy
 import qualified Data.Serialize as S
 
-import MessDB.Table.Types
-
--- | Schema represents a type with particular encoding and additional constraint.
--- In other words, it contains a witness that this type can be encoded, and conforms to the constraint.
-data Schema e c where
-  Schema :: (SchemaTypeClass e a, c a) => Proxy a -> Schema e c
+-- | Schema keeps a witness of a type which can be encoded with particular encoding.
+data Schema e where
+  Schema :: SchemaTypeClass e a => Proxy a -> Schema e
 
 -- | Witness of a constraint for a type.
 data ConstrainedType e c a where
-  ConstrainedType :: c a => ConstrainedType e c a
+  ConstrainedType :: (SchemaConstraintClass e c, c a) => ConstrainedType e c a
+
+-- | Schema with constraint.
+data ConstrainedSchema e c where
+  ConstrainedSchema :: (SchemaTypeClass e a, SchemaConstraintClass e c, c a) => Proxy a -> ConstrainedSchema e c
 
 -- | Schema encoding is a specific encoding supporting a set of types.
 class S.Serialize e => SchemaEncoding e where
@@ -34,20 +35,13 @@ class S.Serialize e => SchemaEncoding e where
 
   -- | Encode supported type.
   encodeSchema :: SchemaTypeClass e a => Proxy a -> e
-  -- | Decode supported type with additional constraint.
-  -- Returns 'Nothing' if decoded type doesn't support that constraint.
-  decodeSchema :: SchemaConstraintClass e c => e -> Maybe (Schema e c)
+  -- | Decode supported type.
+  decodeSchema :: e -> Schema e
   -- | Try to get another constraint for a known type.
   constrainSchemaType :: (SchemaTypeClass e a, SchemaConstraintClass e c) => Maybe (ConstrainedType e c a)
 
--- | Get schema with the same type, but different constraint.
-reconstrainSchema :: (SchemaEncoding e, SchemaConstraintClass e c2) => Schema e c1 -> Maybe (Schema e c2)
-reconstrainSchema (Schema p) = f p <$> constrainSchemaType where
-  f :: SchemaTypeClass e a => Proxy a -> ConstrainedType e c2 a -> Schema e c2
-  f pt ConstrainedType = Schema pt
-
--- | Schema of a table.
-data TableSchema e = TableSchema
-  { tableSchema_keySchema :: !(Schema e TableKey)
-  , tableSchema_valueSchema :: !(Schema e S.Serialize)
-  }
+-- | Get constrained schema with specified constraint.
+constrainSchema :: (SchemaEncoding e, SchemaConstraintClass e c) => Schema e -> Maybe (ConstrainedSchema e c)
+constrainSchema (Schema p) = f p <$> constrainSchemaType where
+  f :: SchemaTypeClass e a => Proxy a -> ConstrainedType e c a -> ConstrainedSchema e c
+  f pt ConstrainedType = ConstrainedSchema pt

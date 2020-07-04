@@ -33,15 +33,13 @@ instance (SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintCl
     S.put (encodeSchema (Proxy :: Proxy v) :: e)
     encode tableRef
   get = do
-    maybeKeySchema :: Maybe (Schema e TableKey) <- decodeSchema <$> (S.get :: S.Get e)
-    maybeValueSchema :: Maybe (Schema e S.Serialize) <- decodeSchema <$> (S.get :: S.Get e)
-    case (maybeKeySchema, maybeValueSchema) of
-      (   Just (Schema (Proxy :: Proxy k) :: Schema e TableKey)
-        , Just (Schema (Proxy :: Proxy v) :: Schema e S.Serialize)
-        ) -> do
-        tableRef :: TableRef k v <- decode
-        return (RepoTable tableRef :: RepoTable e)
-      _ -> fail "invalid schema"
+    Just (ConstrainedSchema keyProxy :: ConstrainedSchema e TableKey) <- constrainSchema . decodeSchema <$> S.get
+    Just (ConstrainedSchema valueProxy :: ConstrainedSchema e S.Serialize) <- constrainSchema . decodeSchema <$> S.get
+    let
+      decodeTableRef :: Proxy k -> Proxy v -> S.Get (TableRef k v)
+      decodeTableRef Proxy Proxy = decode
+    tableRef <- decodeTableRef keyProxy valueProxy
+    return $ RepoTable tableRef
 
 
 -- | Table name in repository.

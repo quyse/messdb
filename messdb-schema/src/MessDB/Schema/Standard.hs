@@ -50,61 +50,35 @@ instance SchemaEncoding StandardSchema where
 
   encodeSchema = standardSchema
 
-  decodeSchema = decode where
-    -- monomorphic
-    decode = \case
-      StandardSchema_Empty -> packWithConstraint (Proxy :: Proxy ())
-      StandardSchema_Int64 -> packWithConstraint (Proxy :: Proxy Int64)
-      StandardSchema_Int32 -> packWithConstraint (Proxy :: Proxy Int32)
-      StandardSchema_Int16 -> packWithConstraint (Proxy :: Proxy Int16)
-      StandardSchema_Int8 -> packWithConstraint (Proxy :: Proxy Int8)
-      StandardSchema_Word64 -> packWithConstraint (Proxy :: Proxy Word64)
-      StandardSchema_Word32 -> packWithConstraint (Proxy :: Proxy Word32)
-      StandardSchema_Word16 -> packWithConstraint (Proxy :: Proxy Word16)
-      StandardSchema_Word8 -> packWithConstraint (Proxy :: Proxy Word8)
-      StandardSchema_Float -> packWithConstraint (Proxy :: Proxy Float)
-      StandardSchema_Double -> packWithConstraint (Proxy :: Proxy Double)
-      StandardSchema_ByteString -> packWithConstraint (Proxy :: Proxy B.ByteString)
-      StandardSchema_Text -> packWithConstraint (Proxy :: Proxy T.Text)
-      StandardSchema_Maybe e -> do
-        Schema p <- decode e
-        packWithConstraint $ liftM Just p
-      StandardSchema_Tuple2 e1 e2 -> do
-        Schema p1 <- decode e1
-        Schema p2 <- decode e2
-        packWithConstraint $ liftM2 ((,)) p1 p2
-      StandardSchema_Tuple3 e1 e2 e3 -> do
-        Schema p1 <- decode e1
-        Schema p2 <- decode e2
-        Schema p3 <- decode e3
-        packWithConstraint $ liftM3 ((,,)) p1 p2 p3
-      StandardSchema_Tuple4 e1 e2 e3 e4 -> do
-        Schema p1 <- decode e1
-        Schema p2 <- decode e2
-        Schema p3 <- decode e3
-        Schema p4 <- decode e4
-        packWithConstraint $ liftM4 ((,,,)) p1 p2 p3 p4
-      StandardSchema_Row n ea eb -> do
-        SomeSymbol (Proxy :: Proxy pn) <- pure (someSymbolVal (T.unpack n))
-        Schema (Proxy :: Proxy pa) <- decode ea
-        Schema (Proxy :: Proxy pb) <- decode eb
-        packWithConstraint (Proxy :: Proxy (Row pn pa pb))
+  decodeSchema = \case
+    StandardSchema_Empty -> Schema (Proxy :: Proxy ())
+    StandardSchema_Int64 -> Schema (Proxy :: Proxy Int64)
+    StandardSchema_Int32 -> Schema (Proxy :: Proxy Int32)
+    StandardSchema_Int16 -> Schema (Proxy :: Proxy Int16)
+    StandardSchema_Int8 -> Schema (Proxy :: Proxy Int8)
+    StandardSchema_Word64 -> Schema (Proxy :: Proxy Word64)
+    StandardSchema_Word32 -> Schema (Proxy :: Proxy Word32)
+    StandardSchema_Word16 -> Schema (Proxy :: Proxy Word16)
+    StandardSchema_Word8 -> Schema (Proxy :: Proxy Word8)
+    StandardSchema_Float -> Schema (Proxy :: Proxy Float)
+    StandardSchema_Double -> Schema (Proxy :: Proxy Double)
+    StandardSchema_ByteString -> Schema (Proxy :: Proxy B.ByteString)
+    StandardSchema_Text -> Schema (Proxy :: Proxy T.Text)
+    StandardSchema_Maybe e -> case decodeSchema e of
+      Schema p -> Schema $ liftM Just p
+    StandardSchema_Tuple2 e1 e2 -> case (decodeSchema e1, decodeSchema e2) of
+      (Schema p1, Schema p2) -> Schema $ liftM2 ((,)) p1 p2
+    StandardSchema_Tuple3 e1 e2 e3 -> case (decodeSchema e1, decodeSchema e2, decodeSchema e3) of
+      (Schema p1, Schema p2, Schema p3) -> Schema $ liftM3 ((,,)) p1 p2 p3
+    StandardSchema_Tuple4 e1 e2 e3 e4 -> case (decodeSchema e1, decodeSchema e2, decodeSchema e3, decodeSchema e4) of
+      (Schema p1, Schema p2, Schema p3, Schema p4) -> Schema $ liftM4 ((,,,)) p1 p2 p3 p4
+    StandardSchema_Row n ea eb -> case (someSymbolVal (T.unpack n), decodeSchema ea, decodeSchema eb) of
+      (SomeSymbol (Proxy :: Proxy pn), Schema (Proxy :: Proxy pa), Schema (Proxy :: Proxy pb)) -> Schema (Proxy :: Proxy (Row pn pa pb))
 
-  constrainSchemaType = f Proxy Proxy where
-    recode :: (StandardSchemaType a, StandardSchemaConstraint c) => Proxy a -> Proxy c -> Maybe (Schema StandardSchema c)
-    recode a Proxy = decodeSchema $ encodeSchema a
-    f :: (StandardSchemaType a, StandardSchemaConstraint c) => Proxy a -> Proxy c -> Maybe (ConstrainedType StandardSchema c a)
-    f a c = case recode a c of
-      Just (Schema a') -> let
-        g :: (Typeable a, Typeable a') => Proxy a -> Proxy a' -> Maybe (a :~: a')
-        g Proxy Proxy = eqT
-        in case g a a' of
-          Just Refl -> Just ConstrainedType
-          Nothing -> Nothing
-      Nothing -> Nothing
+  constrainSchemaType = constrainStandardSchemaType
 
-class (Typeable t, TableKey t, S.Serialize t) => StandardSchemaType t where
-  standardSchema :: Proxy t -> StandardSchema
+class (Typeable a, TableKey a, S.Serialize a) => StandardSchemaType a where
+  standardSchema :: Proxy a -> StandardSchema
 
 instance StandardSchemaType () where
   standardSchema Proxy = StandardSchema_Empty
@@ -156,16 +130,16 @@ instance (KnownSymbol n, StandardSchemaType a, StandardSchemaType b) => Standard
     (standardSchema (Proxy :: Proxy b))
 
 class StandardSchemaConstraint (c :: * -> Constraint) where
-  packWithConstraint :: StandardSchemaType t => Proxy t -> Maybe (Schema StandardSchema c)
+  constrainStandardSchemaType :: StandardSchemaType a => Maybe (ConstrainedType StandardSchema c a)
 
 instance StandardSchemaConstraint Typeable where
   -- All standard types support 'Typeable'.
-  packWithConstraint = Just . Schema
+  constrainStandardSchemaType = Just ConstrainedType
 
 instance StandardSchemaConstraint TableKey where
   -- All standard types support 'TableKey'.
-  packWithConstraint = Just . Schema
+  constrainStandardSchemaType = Just ConstrainedType
 
 instance StandardSchemaConstraint S.Serialize where
   -- All standard types support 'S.Serialize'.
-  packWithConstraint = Just . Schema
+  constrainStandardSchemaType = Just ConstrainedType
