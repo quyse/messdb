@@ -1,10 +1,10 @@
 {-# LANGUAGE ConstraintKinds, GADTs, TypeFamilies #-}
-{-# LANGUAGE RankNTypes #-}
 
 module MessDB.Schema
   ( Schema(..)
   , ConstrainedType(..)
   , SchemaEncoding(..)
+  , reconstrainSchema
   , TableSchema(..)
   ) where
 
@@ -39,6 +39,12 @@ class S.Serialize e => SchemaEncoding e where
   decodeSchema :: SchemaConstraintClass e c => e -> Maybe (Schema e c)
   -- | Try to get another constraint for a known type.
   constrainSchemaType :: (SchemaTypeClass e a, SchemaConstraintClass e c) => Maybe (ConstrainedType e c a)
+
+-- | Get schema with the same type, but different constraint.
+reconstrainSchema :: (SchemaEncoding e, SchemaConstraintClass e c2) => Schema e c1 -> Maybe (Schema e c2)
+reconstrainSchema (Schema p) = f p <$> constrainSchemaType where
+  f :: SchemaTypeClass e a => Proxy a -> ConstrainedType e c2 a -> Schema e c2
+  f pt ConstrainedType = Schema pt
 
 -- | Schema of a table.
 data TableSchema e = TableSchema
