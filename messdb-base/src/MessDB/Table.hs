@@ -22,6 +22,7 @@ module MessDB.Table
   , tableFoldToLast
   ) where
 
+import qualified Data.Serialize as S
 import qualified Data.Vector as V
 
 import MessDB.Store
@@ -39,6 +40,10 @@ tableHash = trieHash . unTable
 newtype TableRef k v = TableRef
   { unTableRef :: StoreKey
   } deriving Encodable
+
+instance S.Serialize (TableRef k v) where
+  put = encode
+  get = decode
 
 -- | Create ref to table.
 refTable :: Table k v -> TableRef k v
