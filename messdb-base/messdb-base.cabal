@@ -19,9 +19,6 @@ library
     MessDB.Store.File
     MessDB.Store.Memory
     MessDB.Store.Stat
-    MessDB.Table
-    MessDB.Table.Row
-    MessDB.Table.Types
     MessDB.Trie
   hs-source-dirs:      src
   build-depends:
@@ -46,13 +43,11 @@ test-suite messdb-base-spectest
   type:                exitcode-stdio-1.0
   main-is:             Spec.hs
   other-modules:
-    MessDB.Test.TableSpec
     MessDB.Test.TrieSpec
   hs-source-dirs:      test
   build-depends:
     base
     , bytestring
-    , cereal
     , containers
     , generic-arbitrary
     , hspec
