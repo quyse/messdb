@@ -77,7 +77,7 @@ instance SchemaEncoding StandardSchema where
 
   constrainSchemaType = constrainStandardSchemaType
 
-class (Typeable a, TableKey a, S.Serialize a) => StandardSchemaType a where
+class (Typeable a, TableKey a, TableValue a) => StandardSchemaType a where
   standardSchema :: Proxy a -> StandardSchema
 
 instance StandardSchemaType () where

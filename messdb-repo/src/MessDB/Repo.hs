@@ -37,14 +37,14 @@ data SomeRepoTable e where
   SomeRepoTable :: (TableKey k, S.Serialize v, SchemaTypeClass e k, SchemaTypeClass e v) => RepoTable e k v -> SomeRepoTable e
 
 -- Serialization of SomeRepoTable stores key/value types.
-instance (SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e S.Serialize) => S.Serialize (SomeRepoTable e) where
+instance (SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e TableValue) => S.Serialize (SomeRepoTable e) where
   put (SomeRepoTable (repoTable :: RepoTable e k v)) = do
     S.put (encodeSchema (Proxy :: Proxy k) :: e)
     S.put (encodeSchema (Proxy :: Proxy v) :: e)
     S.put repoTable
   get = do
     Just (ConstrainedSchema keyProxy :: ConstrainedSchema e TableKey) <- constrainSchema . decodeSchema <$> S.get
-    Just (ConstrainedSchema valueProxy :: ConstrainedSchema e S.Serialize) <- constrainSchema . decodeSchema <$> S.get
+    Just (ConstrainedSchema valueProxy :: ConstrainedSchema e TableValue) <- constrainSchema . decodeSchema <$> S.get
     let
       getRepoTable :: Proxy k -> Proxy v -> S.Get (RepoTable e k v)
       getRepoTable Proxy Proxy = S.get
