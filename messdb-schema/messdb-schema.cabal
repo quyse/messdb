@@ -25,6 +25,7 @@ library
     aeson
     , base
     , bytestring
+    , cassava
     , cereal
     , cereal-text
     , messdb-base

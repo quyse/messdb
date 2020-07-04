@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds, FlexibleInstances, GADTs, KindSignatures, MultiParamTypeClasses, TypeOperators #-}
+{-# LANGUAGE DataKinds, FlexibleInstances, GADTs, KindSignatures, LambdaCase, MultiParamTypeClasses, TypeOperators #-}
 
 module MessDB.Table.Row
   ( Row(..)
@@ -7,10 +7,12 @@ module MessDB.Table.Row
   , HasRowField(..)
   ) where
 
+import qualified Data.Csv as Csv
 import Data.Proxy
 import qualified Data.Serialize as S
+import Data.String
 import Data.Typeable
-
+import qualified Data.Vector as V
 import GHC.TypeLits
 
 -- | Row is a structure with named fields.
@@ -52,3 +54,51 @@ instance (S.Serialize a, S.Serialize r) => S.Serialize (Row n a r) where
   get = Row
     <$> S.get
     <*> S.get
+
+
+-- CSV instances
+
+-- Actual Cassava instances
+
+instance (KnownSymbol n, HasCsvColumnNames b) => Csv.DefaultOrdered (Row n a b) where
+  headerOrder = f Proxy where
+    f :: (KnownSymbol n, HasCsvColumnNames b) => Proxy (Row n a b) -> Row n a b -> Csv.Header
+    f p _ = V.fromList $ map fromString $ csvColumnNames p
+
+instance (Csv.FromField a, HasCsvFromRecord b) => Csv.FromRecord (Row n a b) where
+  parseRecord = csvParseRecord . V.toList
+
+instance (Csv.ToField a, HasCsvToRecord b) => Csv.ToRecord (Row n a b) where
+  toRecord = V.fromList . csvToRecord
+
+
+-- CSV helper classes and instances
+
+class HasCsvColumnNames a where
+  csvColumnNames :: Proxy a -> [String]
+instance (KnownSymbol n, HasCsvColumnNames b) => HasCsvColumnNames (Row n a b) where
+  csvColumnNames = f Proxy Proxy where
+    f :: (KnownSymbol n, HasCsvColumnNames b) => Proxy n -> Proxy b -> Proxy (Row n a b) -> [String]
+    f pn pb Proxy = symbolVal pn : csvColumnNames pb
+instance HasCsvColumnNames () where
+  csvColumnNames Proxy = []
+
+class HasCsvFromRecord a where
+  csvParseRecord :: [Csv.Field] -> Csv.Parser a
+instance (Csv.FromField a, HasCsvFromRecord b) => HasCsvFromRecord (Row n a b) where
+  csvParseRecord = \case
+    (field : restFields) -> do
+      a <- Csv.parseField field
+      Row a <$> csvParseRecord restFields
+    [] -> mempty -- fail because of not enough fields
+instance HasCsvFromRecord () where
+  csvParseRecord = \case
+    [] -> return ()
+    _ -> mempty -- fail because of extra fields
+
+class HasCsvToRecord a where
+  csvToRecord :: a -> [Csv.Field]
+instance (Csv.ToField a, HasCsvToRecord b) => HasCsvToRecord (Row n a b) where
+  csvToRecord (Row a b) = Csv.toField a : csvToRecord b
+instance HasCsvToRecord () where
+  csvToRecord () = []
