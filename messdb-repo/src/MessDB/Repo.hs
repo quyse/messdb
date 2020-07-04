@@ -7,8 +7,10 @@ module MessDB.Repo
   , RepoStore(..)
   , RepoQuery(..)
   , RepoStatement(..)
+  , runRepoStatement
   ) where
 
+import Control.Exception
 import Data.Proxy
 import qualified Data.Serialize as S
 import qualified Data.Text as T
@@ -54,3 +56,11 @@ class RepoStore s where
 newtype RepoQuery e = RepoQuery (forall s ms. (Store s, MemoStore ms) => s -> ms -> RepoRoot e -> RepoTable e)
 -- | Type of a statement to repo.
 newtype RepoStatement e = RepoStatement (forall s ms. (Store s, MemoStore ms) => s -> ms -> RepoRoot e -> RepoRoot e)
+
+runRepoStatement :: (Store s, MemoStore ms, RepoStore rs) => s -> ms -> rs -> RepoStatement e -> IO ()
+runRepoStatement store memoStore repoStore (RepoStatement f) = do
+  rootTrie <- either (\SomeException {} -> return emptyTrie) (load store) =<< try (repoStoreGetRoot repoStore)
+  let
+    RepoRoot (Table newRootTrie) = f store memoStore (RepoRoot (Table rootTrie))
+  save store newRootTrie
+  repoStoreSetRoot repoStore (trieHash newRootTrie)
