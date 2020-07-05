@@ -1,10 +1,13 @@
-{-# LANGUAGE DataKinds, FlexibleInstances, GADTs, KindSignatures, LambdaCase, MultiParamTypeClasses, TypeOperators #-}
+{-# LANGUAGE DataKinds, DeriveGeneric, FlexibleInstances, GADTs, KindSignatures, LambdaCase, MultiParamTypeClasses, TypeOperators #-}
 
 module MessDB.Table.Row
   ( Row(..)
   , SomeRowField(..)
   , IsRow(..)
   , HasRowField(..)
+  , HasCsvColumnNames(..)
+  , HasCsvFromRecord(..)
+  , HasCsvToRecord(..)
   ) where
 
 import qualified Data.Csv as Csv
@@ -13,10 +16,11 @@ import qualified Data.Serialize as S
 import Data.String
 import Data.Typeable
 import qualified Data.Vector as V
+import GHC.Generics(Generic)
 import GHC.TypeLits
 
 -- | Row is a structure with named fields.
-data Row (n :: Symbol) a b = Row !a !b deriving (Eq, Ord)
+data Row (n :: Symbol) a b = Row !a !b deriving (Eq, Ord, Generic, Show)
 
 -- | Witness for row having a field with particular name.
 data SomeRowField n r where

@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, DeriveGeneric, LambdaCase, ScopedTypeVariables, TemplateHaskell, TypeFamilies, TypeOperators, ViewPatterns #-}
+{-# LANGUAGE ConstraintKinds, DefaultSignatures, DeriveGeneric, LambdaCase, ScopedTypeVariables, TemplateHaskell, TypeFamilies, TypeOperators, ViewPatterns #-}
 
 module MessDB.Schema.Standard
   ( StandardSchema(..)
@@ -6,6 +6,7 @@ module MessDB.Schema.Standard
 
 import Control.Monad
 import qualified Data.ByteString as B
+import qualified Data.Csv as Csv
 import Data.Int
 import Data.Kind
 import Data.Proxy
@@ -81,8 +82,27 @@ instance SchemaEncoding StandardSchema where
 class (Typeable a, TableKey a, TableValue a) => StandardSchemaType a where
   standardSchema :: Proxy a -> StandardSchema
 
+  hasCsvFromToField :: Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
+  default hasCsvFromToField :: (Csv.FromField a, Csv.ToField a) => Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
+  hasCsvFromToField = Just (ConstrainedType, ConstrainedType)
+
+  hasCsvDefaultOrdered :: Maybe (ConstrainedType StandardSchema Csv.DefaultOrdered a)
+  hasCsvDefaultOrdered = Nothing
+
+  hasCsvFromToRecord :: Maybe (ConstrainedType StandardSchema Csv.FromRecord a, ConstrainedType StandardSchema Csv.ToRecord a)
+  hasCsvFromToRecord = Nothing
+
+  hasHasCsvColumnNames :: Maybe (ConstrainedType StandardSchema HasCsvColumnNames a)
+  hasHasCsvColumnNames = Nothing
+
+  hasHasCsvFromToRecord :: Maybe (ConstrainedType StandardSchema HasCsvFromRecord a, ConstrainedType StandardSchema HasCsvToRecord a)
+  hasHasCsvFromToRecord = Nothing
+
 instance StandardSchemaType () where
   standardSchema Proxy = StandardSchema_Empty
+  hasCsvFromToField = Nothing
+  hasHasCsvColumnNames = Just ConstrainedType
+  hasHasCsvFromToRecord = Just (ConstrainedType, ConstrainedType)
 instance StandardSchemaType Int64 where
   standardSchema Proxy = StandardSchema_Int64
 instance StandardSchemaType Int32 where
@@ -109,26 +129,63 @@ instance StandardSchemaType T.Text where
   standardSchema Proxy = StandardSchema_Text
 instance StandardSchemaType a => StandardSchemaType (Maybe a) where
   standardSchema Proxy = StandardSchema_Maybe (standardSchema (Proxy :: Proxy a))
+  hasCsvFromToField = f hasCsvFromToField where
+    f :: Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a) -> Maybe (ConstrainedType StandardSchema Csv.FromField (Maybe a), ConstrainedType StandardSchema Csv.ToField (Maybe a))
+    f = \case
+      Just (ConstrainedType, ConstrainedType) -> Just (ConstrainedType, ConstrainedType)
+      Nothing -> Nothing
 instance (StandardSchemaType a, StandardSchemaType b) => StandardSchemaType (a, b) where
   standardSchema Proxy = StandardSchema_Tuple2
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
+  hasCsvFromToField = Nothing
 instance (StandardSchemaType a, StandardSchemaType b, StandardSchemaType c) => StandardSchemaType (a, b, c) where
   standardSchema Proxy = StandardSchema_Tuple3
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
     (standardSchema (Proxy :: Proxy c))
+  hasCsvFromToField = Nothing
 instance (StandardSchemaType a, StandardSchemaType b, StandardSchemaType c, StandardSchemaType d) => StandardSchemaType (a, b, c, d) where
   standardSchema Proxy = StandardSchema_Tuple4
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
     (standardSchema (Proxy :: Proxy c))
     (standardSchema (Proxy :: Proxy d))
+  hasCsvFromToField = Nothing
 instance (KnownSymbol n, StandardSchemaType a, StandardSchemaType b) => StandardSchemaType (Row n a b) where
   standardSchema Proxy = StandardSchema_Row
     (T.pack (symbolVal (Proxy :: Proxy n)))
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
+  hasCsvFromToField = Nothing
+  hasCsvDefaultOrdered = f hasHasCsvColumnNames where
+    f :: Maybe (ConstrainedType StandardSchema HasCsvColumnNames b) -> Maybe (ConstrainedType StandardSchema Csv.DefaultOrdered (Row n a b))
+    f = \case
+      Just ConstrainedType -> Just ConstrainedType
+      Nothing -> Nothing
+  hasCsvFromToRecord = f (hasCsvFromToField, hasHasCsvFromToRecord) where
+    f ::
+      ( Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
+      , Maybe (ConstrainedType StandardSchema HasCsvFromRecord b, ConstrainedType StandardSchema HasCsvToRecord b)
+      )
+      -> Maybe (ConstrainedType StandardSchema Csv.FromRecord (Row n a b), ConstrainedType StandardSchema Csv.ToRecord (Row n a b))
+    f = \case
+      (Just (ConstrainedType, ConstrainedType), Just (ConstrainedType, ConstrainedType)) -> Just (ConstrainedType, ConstrainedType)
+      _ -> Nothing
+  hasHasCsvColumnNames = f hasHasCsvColumnNames where
+    f :: Maybe (ConstrainedType StandardSchema HasCsvColumnNames b) -> Maybe (ConstrainedType StandardSchema HasCsvColumnNames (Row n a b))
+    f = \case
+      Just ConstrainedType -> Just ConstrainedType
+      Nothing -> Nothing
+  hasHasCsvFromToRecord = f (hasCsvFromToField, hasHasCsvFromToRecord) where
+    f ::
+      ( Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
+      , Maybe (ConstrainedType StandardSchema HasCsvFromRecord b, ConstrainedType StandardSchema HasCsvToRecord b)
+      )
+      -> Maybe (ConstrainedType StandardSchema HasCsvFromRecord (Row n a b), ConstrainedType StandardSchema HasCsvToRecord (Row n a b))
+    f = \case
+      (Just (ConstrainedType, ConstrainedType), Just (ConstrainedType, ConstrainedType)) -> Just (ConstrainedType, ConstrainedType)
+      _ -> Nothing
 
 class StandardSchemaConstraint (c :: * -> Constraint) where
   constrainStandardSchemaType :: StandardSchemaType a => Maybe (ConstrainedType StandardSchema c a)
@@ -144,3 +201,21 @@ instance StandardSchemaConstraint TableKey where
 instance StandardSchemaConstraint S.Serialize where
   -- All standard types support 'S.Serialize'.
   constrainStandardSchemaType = Just ConstrainedType
+
+-- CSV instances are optional.
+instance StandardSchemaConstraint Csv.FromField where
+  constrainStandardSchemaType = fst <$> hasCsvFromToField
+instance StandardSchemaConstraint Csv.ToField where
+  constrainStandardSchemaType = snd <$> hasCsvFromToField
+instance StandardSchemaConstraint Csv.DefaultOrdered where
+  constrainStandardSchemaType = hasCsvDefaultOrdered
+instance StandardSchemaConstraint Csv.FromRecord where
+  constrainStandardSchemaType = fst <$> hasCsvFromToRecord
+instance StandardSchemaConstraint Csv.ToRecord where
+  constrainStandardSchemaType = snd <$> hasCsvFromToRecord
+instance StandardSchemaConstraint HasCsvColumnNames where
+  constrainStandardSchemaType = hasHasCsvColumnNames
+instance StandardSchemaConstraint HasCsvFromRecord where
+  constrainStandardSchemaType = fst <$> hasHasCsvFromToRecord
+instance StandardSchemaConstraint HasCsvToRecord where
+  constrainStandardSchemaType = snd <$> hasHasCsvFromToRecord

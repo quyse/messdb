@@ -40,10 +40,12 @@ test-suite messdb-schema-spectest
   main-is:             Spec.hs
   other-modules:
     MessDB.Test.TableSpec
+    MessDB.Test.StandardSchemaSpec
   hs-source-dirs:      test
   build-depends:
     base
     , bytestring
+    , cassava
     , cereal
     , generic-arbitrary
     , hspec
