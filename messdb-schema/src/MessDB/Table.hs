@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, ViewPatterns #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, LambdaCase, OverloadedLists, ViewPatterns #-}
 
 module MessDB.Table
   ( Table(..)
@@ -16,10 +16,13 @@ module MessDB.Table
   , singletonTable
   , mergeTables
   , sortTable
+  , rangeFilterTable
   , tableToRows
   , tableFromRows
   , printTable
   , tableFoldToLast
+  , TableKeyRange(..)
+  , TableKeyRangeEnd(..)
   ) where
 
 import qualified Data.Serialize as S
@@ -101,6 +104,15 @@ sortTable store memoStore
   (Table trie)
   = Table $ sortTrie store memoStore transformFunc foldFunc trie
 
+rangeFilterTable
+  :: (TableKey k, Store s, MemoStore ms)
+  => s -> ms
+  -> TableKeyRange k
+  -> Table k v
+  -> Table k v
+rangeFilterTable store memoStore (tableKeyRangeToKeyRange -> keyRange) (Table trie)
+  = Table $ rangeFilterTrie store memoStore keyRange trie
+
 tableToRows :: (TableKey k, TableValue v) => Table k v -> [(k, v)]
 tableToRows (Table trie) = map (\(k, v) -> (decodeTableKey k, decodeTableValue v)) $ trieToItems trie
 
@@ -126,3 +138,19 @@ printTable = mapM_ print . tableToRows
 
 tableFoldToLast :: TableFoldFunc k v
 tableFoldToLast = TableFoldFunc foldToLast
+
+data TableKeyRange k = TableKeyRange !(TableKeyRangeEnd k) !(TableKeyRangeEnd k)
+
+data TableKeyRangeEnd k
+  = TableKeyRangeEnd_inclusive !k
+  | TableKeyRangeEnd_exclusive !k
+  | TableKeyRangeEnd_infinite
+
+tableKeyRangeToKeyRange :: TableKey k => TableKeyRange k -> KeyRange
+tableKeyRangeToKeyRange (TableKeyRange lowerEnd upperEnd) = KeyRange (tableKeyRangeEndToKeyRangeEnd lowerEnd) (tableKeyRangeEndToKeyRangeEnd upperEnd)
+
+tableKeyRangeEndToKeyRangeEnd :: TableKey k => TableKeyRangeEnd k -> KeyRangeEnd
+tableKeyRangeEndToKeyRangeEnd = \case
+  TableKeyRangeEnd_inclusive key -> KeyRangeEnd_inclusive (encodeTableKey key)
+  TableKeyRangeEnd_exclusive key -> KeyRangeEnd_exclusive (encodeTableKey key)
+  TableKeyRangeEnd_infinite -> KeyRangeEnd_infinite
