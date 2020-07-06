@@ -4,6 +4,7 @@ module MessDB.Test.TrieSpec
   ( spec
   ) where
 
+import Control.Monad
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as BS
 import Data.Char
@@ -41,6 +42,12 @@ spec = describe "Trie" $ do
   it "Sort random trie 4" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 100) 26
   it "Sort random trie 5" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 1000) 26
 
+  it "Range random trie 1" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 3) 3) (arbitraryRange 3)
+  it "Range random trie 2" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 10) 3) (arbitraryRange 3)
+  it "Range random trie 3" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 30) 3) (arbitraryRange 3)
+  it "Range random trie 4" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (50, 100) 3) (arbitraryRange 3)
+  it "Range random trie 5" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (50, 100) 26) (arbitraryRange 26)
+
 checkedTrieSort :: TransformFunc -> FoldFunc -> Trie -> Trie
 checkedTrieSort transformFunc@Func
   { func_func = transform
@@ -50,6 +57,12 @@ checkedTrieSort transformFunc@Func
   items = V.fromList $ trieToItems trie
   sortedItems = M.toAscList $ V.foldl (\m (k, v) -> M.alter (maybe (Just v) (\v' -> Just $ fold k v' v)) k m) M.empty $ V.map (uncurry transform) items
   in printFailedTrie sortedItems $ checkedTrieItems sortedItems $ sortTrie testMemoryStore testMemoryStore transformFunc foldFunc trie
+
+checkedTrieRange :: Trie -> KeyRange -> Trie
+checkedTrieRange trie range = let
+  items = trieToItems trie
+  filteredItems = filter (\(k, _v) -> keyRangeIncludes k range) items
+  in printFailedTrie filteredItems $ checkedTrieItems filteredItems $ rangeFilterTrie testMemoryStore testMemoryStore range trie
 
 testTransform :: TransformFunc
 testTransform = Func
@@ -61,8 +74,10 @@ checkedTrieItems :: [(Key, Value)] -> Trie -> Trie
 checkedTrieItems items trie = if items == trieToItems trie
   then trie
   else unsafePerformIO $ do
-    putStrLn "BEGIN checked trie items"
+    putStrLn "BEGIN checked trie expected items"
     print items
+    putStrLn "BEGIN checked trie real items"
+    print $ trieToItems trie
     putStrLn "BEGIN checked trie"
     debugPrintTrie trie
     putStrLn "END checked trie"
@@ -84,6 +99,16 @@ arbitraryPair alphabetSize = do
 
 arbitraryByte :: Int -> Gen Word8
 arbitraryByte alphabetSize = choose (fromIntegral $ ord 'a', fromIntegral $ ord 'a' + alphabetSize - 1)
+
+arbitraryRange :: Int -> Gen KeyRange
+arbitraryRange alphabetSize = liftM2 KeyRange arbitraryRangeEnd arbitraryRangeEnd where
+  arbitraryRangeEnd = do
+    endType <- choose (-1, 9)
+    if endType < (0 :: Int)
+      then return KeyRangeEnd_infinite
+      else
+        (if endType `rem` 2 == 0 then KeyRangeEnd_inclusive else KeyRangeEnd_exclusive)
+          . Key . BS.pack <$> listOf (arbitraryByte alphabetSize)
 
 printFailedTrie :: Show a => a -> Trie -> Trie
 printFailedTrie a trie = if checkTrie trie

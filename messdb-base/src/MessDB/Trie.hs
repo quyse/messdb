@@ -13,10 +13,14 @@ module MessDB.Trie
   , trieToItems
   , mergeTries
   , sortTrie
+  , rangeFilterTrie
   , Func(..)
   , FuncKey(..)
   , TransformFunc
   , FoldFunc
+  , KeyRange(..)
+  , KeyRangeEnd(..)
+  , keyRangeIncludes
   , itemsToTrie
   , foldToLast
   , checkTrie
@@ -31,6 +35,8 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as BS
 import Data.Int
+import Data.List
+import Data.Maybe
 import qualified Data.Serialize as S
 import Data.String
 import qualified Data.Vector as V
@@ -449,6 +455,46 @@ sortNode store memoStore transformFunc@Func
       , item_node = node
       } -> V.singleton $ sortNode store memoStore transformFunc foldFunc (itemPathPrefix <> path) node
 
+-- | Filter items included in specified range by key.
+rangeFilterTrie :: (Store s, MemoStore ms) => s -> ms -> KeyRange -> Trie -> Trie
+rangeFilterTrie store memoStore range = Trie . rangeFilterNode store memoStore range mempty . unTrie
+
+rangeFilterNode :: (Store s, MemoStore ms) => s -> ms -> KeyRange -> Key -> Node -> Node
+rangeFilterNode store memoStore range pathPrefix Node
+  { node_hash = rootNodeHash
+  , node_items = rootNodeItems
+  } = memoize store memoStore (StoreKey $ BS.toShort $ BA.convert rangeOpHash) resultNode where
+  rangeOpHash :: B.ByteString
+  rangeOpHash = S.runPut $ do
+    S.putWord8 OP_RANGE_NODE
+    S.put range
+    S.put pathPrefix
+    encode rootNodeHash
+
+  resultNode = mergeNodes store memoStore foldToLast mempty $ V.concatMap (rangeItem pathPrefix) rootNodeItems
+
+  -- convert items to nodes with paths as if path prefix is zero
+  -- so merge nodes can actually merge them correctly
+  rangeItem prefix item@((prefix <>) . item_path -> itemPath) = case item of
+    ValueItem
+      { item_value = value
+      } -> if keyRangeIncludes itemPath range then V.singleton $ singletonNode itemPath value else V.empty
+    _ -> case keyPrefixRangeRelation itemPath range of
+      KeyRangeRelation_in -> V.singleton $ itemsToNode $ V.singleton item
+        { item_path = itemPath
+        }
+      KeyRangeRelation_out -> V.empty
+      KeyRangeRelation_intersects -> case item of
+        ValueItem {} -> error "impossible: processed earlier"
+        InlineNodeItem
+          { item_node = Node
+            { node_items = subItems
+            }
+          } -> V.concatMap (rangeItem itemPath) subItems
+        ExternalNodeItem
+          { item_node = subNode
+          } -> V.singleton $ rangeFilterNode store memoStore range itemPath subNode
+
 
 data Func a = Func
   { func_key :: {-# UNPACK #-} !FuncKey
@@ -468,6 +514,95 @@ foldToLast = Func
   , func_func = \_k _a b -> b
   }
 
+
+-- | Range of keys.
+data KeyRange = KeyRange !KeyRangeEnd !KeyRangeEnd deriving Show
+
+instance S.Serialize KeyRange where
+  put (KeyRange a b) = do
+    S.put a
+    S.put b
+  get = do
+    a <- S.get
+    b <- S.get
+    return $ KeyRange a b
+
+-- | End of key range.
+data KeyRangeEnd
+  = KeyRangeEnd_inclusive {-# UNPACK #-} !Key
+  | KeyRangeEnd_exclusive {-# UNPACK #-} !Key
+  | KeyRangeEnd_infinite
+  deriving Show
+
+instance S.Serialize KeyRangeEnd where
+  put = \case
+    KeyRangeEnd_inclusive k -> do
+      S.putWord8 0
+      S.put k
+    KeyRangeEnd_exclusive k -> do
+      S.putWord8 1
+      S.put k
+    KeyRangeEnd_infinite ->
+      S.putWord8 2
+  get = do
+    f <- S.getWord8
+    case f of
+      0 -> KeyRangeEnd_inclusive <$> S.get
+      1 -> KeyRangeEnd_exclusive <$> S.get
+      2 -> return KeyRangeEnd_infinite
+      _ -> fail "wrong key range end type"
+
+-- | Relation between something and key range.
+data KeyRangeRelation
+  = KeyRangeRelation_in
+  | KeyRangeRelation_out
+  | KeyRangeRelation_intersects
+
+-- | Calculate relation between single item and range.
+keyRangeIncludes :: Key -> KeyRange -> Bool
+keyRangeIncludes (Key key) (KeyRange lowerEnd upperEnd) = inLower && inUpper where
+  inLower = case lowerEnd of
+    KeyRangeEnd_inclusive (Key end) -> key >= end
+    KeyRangeEnd_exclusive (Key end) -> key > end
+    KeyRangeEnd_infinite -> True
+  inUpper = case upperEnd of
+    KeyRangeEnd_inclusive (Key end) -> key <= end
+    KeyRangeEnd_exclusive (Key end) -> key < end
+    KeyRangeEnd_infinite -> True
+
+
+-- | Calculate relation between prefix and range.
+keyPrefixRangeRelation :: Key -> KeyRange -> KeyRangeRelation
+keyPrefixRangeRelation (Key prefix) (KeyRange lowerEnd upperEnd) = let
+  isPrefixInLower = case lowerEnd of
+    KeyRangeEnd_inclusive (Key end) -> prefix >= end
+    KeyRangeEnd_exclusive (Key end) -> prefix > end
+    KeyRangeEnd_infinite -> True
+  isPrefixInUpper = case upperEnd of
+    KeyRangeEnd_inclusive (Key end) -> isPrefixLessUpper end
+    KeyRangeEnd_exclusive (Key end) -> isPrefixLessUpper end
+    KeyRangeEnd_infinite -> True
+  isPrefixIn = isPrefixInLower && isPrefixInUpper
+
+  isPrefixOutLower = case lowerEnd of
+    KeyRangeEnd_inclusive (Key end) -> isPrefixLessUpper end
+    KeyRangeEnd_exclusive (Key end) -> isPrefixLessUpper end
+    KeyRangeEnd_infinite -> False
+  isPrefixOutUpper = case upperEnd of
+    KeyRangeEnd_inclusive (Key end) -> prefix > end
+    KeyRangeEnd_exclusive (Key end) -> prefix >= end
+    KeyRangeEnd_infinite -> False
+  isPrefixOut = isPrefixOutLower || isPrefixOutUpper
+
+  isPrefixLessUpper end = prefix < end && (BS.length prefix >= BS.length end || isNothing (stripPrefix (BS.unpack prefix) (BS.unpack end)))
+
+  in if isPrefixIn
+    then KeyRangeRelation_in
+    else if isPrefixOut
+      then KeyRangeRelation_out
+      else KeyRangeRelation_intersects
+
+
 -- | Create trie from items.
 itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, Value) -> Trie
 itemsToTrie store memoStore pairs = mergeTries store memoStore foldToLast tries where
@@ -483,6 +618,9 @@ pattern OP_MERGE_NODES = 0
 
 pattern OP_SORT_NODE :: Word8
 pattern OP_SORT_NODE = 1
+
+pattern OP_RANGE_NODE :: Word8
+pattern OP_RANGE_NODE = 2
 
 
 -- Standard fold operations.
