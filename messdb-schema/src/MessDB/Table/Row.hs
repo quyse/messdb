@@ -8,6 +8,7 @@ module MessDB.Table.Row
   , HasCsvColumnNames(..)
   , HasCsvFromRecord(..)
   , HasCsvToRecord(..)
+  , csvParseRecordWithHeader
   ) where
 
 import qualified Data.Csv as Csv
@@ -106,3 +107,12 @@ instance (Csv.ToField a, HasCsvToRecord b) => HasCsvToRecord (Row n a b) where
   csvToRecord (Row a b) = Csv.toField a : csvToRecord b
 instance HasCsvToRecord () where
   csvToRecord () = []
+
+-- | Parse record given field order.
+-- More efficient than 'Csv.parseNamedRecord'.
+csvParseRecordWithHeader :: (HasCsvColumnNames a, HasCsvFromRecord a) => V.Vector String -> Maybe (V.Vector Csv.Field -> Csv.Parser a)
+csvParseRecordWithHeader = f Proxy where
+  f :: (HasCsvColumnNames a, HasCsvFromRecord a) => Proxy a -> V.Vector String -> Maybe (V.Vector Csv.Field -> Csv.Parser a)
+  f p fieldOrder = do
+    columns <- mapM (`V.elemIndex` fieldOrder) (csvColumnNames p)
+    return $ \fields -> csvParseRecord $ map (fields V.!) columns

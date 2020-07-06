@@ -7,6 +7,7 @@ module MessDB.Test.StandardSchemaSpec
 
 import qualified Data.Csv as Csv
 import Data.Int
+import Data.Maybe
 import Data.Proxy
 import qualified Data.Text as T
 import Test.Hspec
@@ -25,6 +26,7 @@ schemaCsvSpec p = describe "csv" $ do
   it "fromRecord is inverse of toRecord" $ property $ do
     a <- genByProxy p
     return $ Csv.runParser (Csv.parseRecord (Csv.toRecord a)) == Right a
+  it "parse with header" $ property $ Csv.runParser (fromJust (csvParseRecordWithHeader ["b", "d", "a", "c"]) ["1", "2", "3", "4"]) == Right (Row 3 (Row "1" (Row 4 ())) :: TestRow)
 
 genByProxy :: Arbitrary a => Proxy a -> Gen a
 genByProxy Proxy = arbitrary
