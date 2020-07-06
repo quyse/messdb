@@ -21,6 +21,8 @@ module MessDB.Trie
   , KeyRange(..)
   , KeyRangeEnd(..)
   , keyRangeIncludes
+  , KeyRangeRelation(..)
+  , keyPrefixRangeRelation
   , itemsToTrie
   , foldToLast
   , checkTrie
@@ -552,12 +554,6 @@ instance S.Serialize KeyRangeEnd where
       2 -> return KeyRangeEnd_infinite
       _ -> fail "wrong key range end type"
 
--- | Relation between something and key range.
-data KeyRangeRelation
-  = KeyRangeRelation_in
-  | KeyRangeRelation_out
-  | KeyRangeRelation_intersects
-
 -- | Calculate relation between single item and range.
 keyRangeIncludes :: Key -> KeyRange -> Bool
 keyRangeIncludes (Key key) (KeyRange lowerEnd upperEnd) = inLower && inUpper where
@@ -570,6 +566,12 @@ keyRangeIncludes (Key key) (KeyRange lowerEnd upperEnd) = inLower && inUpper whe
     KeyRangeEnd_exclusive (Key end) -> key < end
     KeyRangeEnd_infinite -> True
 
+-- | Relation between something and key range.
+data KeyRangeRelation
+  = KeyRangeRelation_in
+  | KeyRangeRelation_out
+  | KeyRangeRelation_intersects
+  deriving Eq
 
 -- | Calculate relation between prefix and range.
 keyPrefixRangeRelation :: Key -> KeyRange -> KeyRangeRelation

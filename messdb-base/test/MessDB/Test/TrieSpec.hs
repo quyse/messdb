@@ -20,33 +20,62 @@ import MessDB.Trie
 
 spec :: Spec
 spec = describe "Trie" $ do
-  it "Empty trie" $ checkTrie emptyTrie
-  it "Singleton trie" $ checkTrie $ singletonTrie "abc" "def"
+  describe "Trie correctness" $ do
+    it "Empty trie" $ checkTrie emptyTrie
+    it "Singleton trie" $ checkTrie $ singletonTrie "abc" "def"
+    it "Random trie 1" $ property $ checkTrie <$> arbitraryTrie (0, 3) 3
+    it "Random trie 2" $ property $ checkTrie <$> arbitraryTrie (50, 100) 3
+    it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 200) 3
+    it "Random trie 4" $ property $ checkTrie <$> arbitraryTrie (0, 1000) 26
 
-  it "Random trie 1" $ property $ checkTrie <$> arbitraryTrie (0, 3) 3
-  it "Random trie 2" $ property $ checkTrie <$> arbitraryTrie (50, 100) 3
-  it "Random trie 3" $ property $ checkTrie <$> arbitraryTrie (100, 200) 3
-  it "Random trie 4" $ property $ checkTrie <$> arbitraryTrie (0, 1000) 26
+  describe "Trie merge" $ do
+    it "Merge zero tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast []
+    it "Merge 2 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie]
+    it "Merge 3 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie, emptyTrie]
+    it "Merge with itself" $ property $ do
+      trie <- arbitraryTrie (0, 100) 3
+      mergeCount <- choose (0, 50)
+      return $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast (V.replicate mergeCount trie)
 
-  it "Merge zero tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast []
-  it "Merge 2 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie]
-  it "Merge 3 empty tries" $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast [emptyTrie, emptyTrie, emptyTrie]
-  it "Merge with itself" $ property $ do
-    trie <- arbitraryTrie (0, 100) 3
-    mergeCount <- choose (0, 50)
-    return $ checkTrie $ mergeTries testMemoryStore testMemoryStore foldToLast (V.replicate mergeCount trie)
+  describe "Trie sort" $ do
+    it "Random trie 1" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 3) 3
+    it "Random trie 2" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (50, 100) 3
+    it "Random trie 3" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 200) 3
+    it "Random trie 4" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 100) 26
+    it "Random trie 5" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 1000) 26
 
-  it "Sort random trie 1" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 3) 3
-  it "Sort random trie 2" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (50, 100) 3
-  it "Sort random trie 3" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 200) 3
-  it "Sort random trie 4" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (0, 100) 26
-  it "Sort random trie 5" $ property $ checkTrie . checkedTrieSort testTransform foldToLast <$> arbitraryTrie (100, 1000) 26
+  describe "Range functions" $ do
+    describe "keyRangeIncludes" $ do
+      it "Infinite" $ property $ keyRangeIncludes (Key "abc") (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite)
+      it "Inclusive 1" $ property $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_inclusive "a") (KeyRangeEnd_inclusive "b"))
+      it "Inclusive 2" $ property $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abc"))
+      it "Exclusive fail 1" $ property $ not $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abc") (KeyRangeEnd_inclusive "b"))
+      it "Exclusive fail 2" $ property $ not $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_exclusive "abc"))
+    describe "keyPrefixRangeRelation" $ do
+      it "1" $ property $ keyPrefixRangeRelation (Key "") (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "2" $ property $ keyPrefixRangeRelation (Key "") (KeyRange (KeyRangeEnd_inclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "3" $ property $ keyPrefixRangeRelation (Key "") (KeyRange (KeyRangeEnd_exclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "4" $ property $ keyPrefixRangeRelation (Key "") (KeyRange (KeyRangeEnd_inclusive "") (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
+      it "5" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "6" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "7" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "8" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "9" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abd")) == KeyRangeRelation_in
+      it "10" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_exclusive "abca")) == KeyRangeRelation_intersects
+      it "11" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
+      it "12" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange KeyRangeEnd_infinite (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
+      it "13" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange KeyRangeEnd_infinite (KeyRangeEnd_exclusive "abc")) == KeyRangeRelation_out
+      it "14" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abca") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "15" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "16" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abd") KeyRangeEnd_infinite) == KeyRangeRelation_out
+      it "17" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abd") KeyRangeEnd_infinite) == KeyRangeRelation_out
 
-  it "Range random trie 1" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 3) 3) (arbitraryRange 3)
-  it "Range random trie 2" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 10) 3) (arbitraryRange 3)
-  it "Range random trie 3" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 30) 3) (arbitraryRange 3)
-  it "Range random trie 4" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (50, 100) 3) (arbitraryRange 3)
-  it "Range random trie 5" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (50, 100) 26) (arbitraryRange 26)
+  describe "Trie range filter" $ do
+    it "Random trie 1" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 3) 3) (arbitraryRange 3)
+    it "Random trie 2" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 10) 3) (arbitraryRange 3)
+    it "Random trie 3" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 30) 3) (arbitraryRange 3)
+    it "Random trie 4" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (50, 100) 3) (arbitraryRange 3)
+    it "Random trie 5" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (50, 100) 26) (arbitraryRange 26)
 
 checkedTrieSort :: TransformFunc -> FoldFunc -> Trie -> Trie
 checkedTrieSort transformFunc@Func
