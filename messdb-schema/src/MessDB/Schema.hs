@@ -2,6 +2,7 @@
 
 module MessDB.Schema
   ( Schema(..)
+  , SchemableType(..)
   , ConstrainedType(..)
   , ConstrainedSchema(..)
   , SchemaEncoding(..)
@@ -15,6 +16,10 @@ import qualified Data.Serialize as S
 -- | Schema keeps a witness of a type which can be encoded with particular encoding.
 data Schema e where
   Schema :: SchemaTypeClass e a => Proxy a -> Schema e
+
+-- | Witness of a type representation with schema.
+data SchemableType e a where
+  SchemableType :: SchemaTypeClass e a => SchemableType e a
 
 -- | Witness of a constraint for a type.
 data ConstrainedType e c a where
