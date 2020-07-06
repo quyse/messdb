@@ -518,7 +518,7 @@ foldToLast = Func
 
 
 -- | Range of keys.
-data KeyRange = KeyRange !KeyRangeEnd !KeyRangeEnd deriving Show
+data KeyRange = KeyRange !KeyRangeEnd !KeyRangeEnd
 
 instance S.Serialize KeyRange where
   put (KeyRange a b) = do
@@ -534,7 +534,6 @@ data KeyRangeEnd
   = KeyRangeEnd_inclusive {-# UNPACK #-} !Key
   | KeyRangeEnd_exclusive {-# UNPACK #-} !Key
   | KeyRangeEnd_infinite
-  deriving Show
 
 instance S.Serialize KeyRangeEnd where
   put = \case
