@@ -14,6 +14,7 @@ module MessDB.Table
   , tableFoldFunc
   , emptyTable
   , singletonTable
+  , syncTable
   , mergeTables
   , sortTable
   , rangeFilterTable
@@ -79,6 +80,9 @@ emptyTable = Table emptyTrie
 
 singletonTable :: (TableKey k, TableValue v) => k -> v -> Table k v
 singletonTable key value = Table $ singletonTrie (encodeTableKey key) (encodeTableValue value)
+
+syncTable :: Store s => s -> Table k v -> Table k v
+syncTable store (Table trie) = Table $ syncTrie store trie
 
 mergeTables
   :: (TableKey k, TableValue v, Store s, MemoStore ms)

@@ -10,6 +10,7 @@ module MessDB.Trie
   , trieHash
   , unsafeTrieFromHash
   , reloadTrie
+  , syncTrie
   , trieToItems
   , mergeTries
   , sortTrie
@@ -245,6 +246,12 @@ unsafeTrieFromHash nodeHash = Trie Node
 -- Uses only hash. Good for hydrating trie from `unsafeTrieFromHash`.
 reloadTrie :: Store s => s -> Trie -> Trie
 reloadTrie store trie = Trie $ unsafePerformIO $ load store $ trieHash trie
+
+-- | Ensure trie is saved, and load it again.
+syncTrie :: Store s => s -> Trie -> Trie
+syncTrie store trie = Trie $ unsafePerformIO $ do
+  save store trie
+  load store $ trieHash trie
 
 trieToItems :: Trie -> [(Key, Value)]
 trieToItems (Trie node) = unpackNode mempty node where
