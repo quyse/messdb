@@ -24,6 +24,7 @@ module MessDB.Table
   , tableFoldToLast
   , TableKeyRange(..)
   , TableKeyRangeEnd(..)
+  , tableKeyRangeSingleton
   ) where
 
 import qualified Data.Serialize as S
@@ -149,6 +150,9 @@ data TableKeyRangeEnd k
   = TableKeyRangeEnd_inclusive !k
   | TableKeyRangeEnd_exclusive !k
   | TableKeyRangeEnd_infinite
+
+tableKeyRangeSingleton :: k -> TableKeyRange k
+tableKeyRangeSingleton key = TableKeyRange (TableKeyRangeEnd_inclusive key) (TableKeyRangeEnd_inclusive key)
 
 tableKeyRangeToKeyRange :: TableKey k => TableKeyRange k -> KeyRange
 tableKeyRangeToKeyRange (TableKeyRange lowerEnd upperEnd) = KeyRange (tableKeyRangeEndToKeyRangeEnd lowerEnd) (tableKeyRangeEndToKeyRangeEnd upperEnd)
