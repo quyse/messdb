@@ -20,6 +20,7 @@ module MessDB.Table
   , rangeFilterTable
   , tableToRows
   , tableFromRows
+  , tableInsert
   , printTable
   , tableFoldToLast
   , TableKeyRange(..)
@@ -137,6 +138,9 @@ tableFromRows store memoStore = tableFromTables . map (\(k, v) -> singletonTable
     in V.fromList a : splitIntoGroups b
   -- number of rows/tables per group
   groupSize = 1024
+
+tableInsert :: (Store s, MemoStore ms, TableKey k, TableValue v) => s -> ms -> k -> v -> Table k v -> Table k v
+tableInsert store memoStore k v table = mergeTables store memoStore tableFoldToLast [table, (singletonTable k v)]
 
 printTable :: (TableKey k, TableValue v, Show k, Show v) => Table k v -> IO ()
 printTable = mapM_ print . tableToRows
