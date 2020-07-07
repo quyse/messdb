@@ -1,7 +1,9 @@
-{-# LANGUAGE DeriveGeneric, GADTs, GeneralizedNewtypeDeriving, RankNTypes, ScopedTypeVariables, UndecidableInstances #-}
+{-# LANGUAGE ConstraintKinds, DeriveGeneric, GADTs, GeneralizedNewtypeDeriving, RankNTypes, ScopedTypeVariables, UndecidableInstances #-}
 
 module MessDB.Repo
-  ( RepoRoot(..)
+  ( Repo(..)
+  , IsRepo
+  , RepoRoot(..)
   , RepoTable(..)
   , SomeRepoTable(..)
   , RepoTableName(..)
@@ -23,6 +25,17 @@ import MessDB.Schema
 import MessDB.Store
 import MessDB.Table
 
+-- | Repo combines all what's needed for repo operations.
+data Repo e where
+  Repo :: (Store s, MemoStore ms, RepoStore rs) =>
+    { repo_store :: s
+    , repo_memoStore :: ms
+    , repo_repoStore :: rs
+    } -> Repo e
+
+-- | Constraint for useful repos.
+type IsRepo e = (SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e TableValue)
+
 -- | Repo root contains a table of tables.
 newtype RepoRoot e = RepoRoot (Table RepoTableName (SomeRepoTable e))
 
@@ -38,7 +51,7 @@ data SomeRepoTable e where
   SomeRepoTable :: (TableKey k, S.Serialize v, SchemaTypeClass e k, SchemaTypeClass e v) => RepoTable e k v -> SomeRepoTable e
 
 -- Serialization of SomeRepoTable stores key/value types.
-instance (SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e TableValue) => S.Serialize (SomeRepoTable e) where
+instance IsRepo e => S.Serialize (SomeRepoTable e) where
   put (SomeRepoTable (repoTable :: RepoTable e k v)) = do
     S.put (encodeSchema (Proxy :: Proxy k) :: e)
     S.put (encodeSchema (Proxy :: Proxy v) :: e)
@@ -66,24 +79,28 @@ newtype RepoQuery e = RepoQuery (forall s ms. (Store s, MemoStore ms) => s -> ms
 newtype RepoStatement e = RepoStatement (forall s ms. (Store s, MemoStore ms) => s -> ms -> RepoRoot e -> RepoRoot e)
 
 -- | Load repo root.
-loadRepoRoot :: (Store s, RepoStore rs) => s -> rs -> IO (RepoRoot e)
-loadRepoRoot store repoStore = fmap RepoRoot . either (\SomeException {} -> return emptyTable) (load store) =<< try (repoStoreGetRoot repoStore)
+loadRepoRoot :: Repo e -> IO (RepoRoot e)
+loadRepoRoot Repo
+  { repo_store = store
+  , repo_repoStore = repoStore
+  } = fmap RepoRoot . either (\SomeException {} -> return emptyTable) (load store) =<< try (repoStoreGetRoot repoStore)
 
 -- | Save repo root.
-saveRepoRoot :: (Store s, RepoStore rs) => s -> rs -> RepoRoot e -> IO ()
-saveRepoRoot store repoStore (RepoRoot rootTable) = do
+saveRepoRoot :: Repo e -> RepoRoot e -> IO ()
+saveRepoRoot Repo
+  { repo_store = store
+  , repo_repoStore = repoStore
+  } (RepoRoot rootTable) = do
   save store rootTable
   repoStoreSetRoot repoStore (tableHash rootTable)
 
 -- | Load repo table by name.
-loadRepoTable
-  ::
-    ( Store s, MemoStore ms, RepoStore rs
-    , SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e TableValue
-    )
-  => s -> ms -> rs -> RepoTableName -> IO (Maybe (SomeRepoTable e))
-loadRepoTable store memoStore repoStore tableName = do
-  RepoRoot rootTable <- loadRepoRoot store repoStore
+loadRepoTable :: IsRepo e => Repo e -> RepoTableName -> IO (Maybe (SomeRepoTable e))
+loadRepoTable repo@Repo
+  { repo_store = store
+  , repo_memoStore = memoStore
+  } tableName = do
+  RepoRoot rootTable <- loadRepoRoot repo
   case tableToRows $ rangeFilterTable store memoStore (tableKeyRangeSingleton tableName) rootTable of
     [(_, table)] -> return $ Just table
     [] -> return Nothing
@@ -91,16 +108,13 @@ loadRepoTable store memoStore repoStore tableName = do
 
 -- | Save repo table by name.
 -- Table must be saved already.
-saveRepoTable
-  ::
-    ( Store s, MemoStore ms, RepoStore rs
-    , SchemaEncoding e, SchemaConstraintClass e TableKey, SchemaConstraintClass e TableValue
-    )
-  => s -> ms -> rs -> RepoTableName -> SomeRepoTable e -> IO ()
-saveRepoTable s ms rs tableName table =
-  runRepoStatement s ms rs $ RepoStatement $ \store memoStore (RepoRoot rootTable) ->
+saveRepoTable :: IsRepo e => Repo e -> RepoTableName -> SomeRepoTable e -> IO ()
+saveRepoTable repo tableName table =
+  runRepoStatement repo $ RepoStatement $ \store memoStore (RepoRoot rootTable) ->
     RepoRoot $ tableInsert store memoStore tableName table rootTable
 
-runRepoStatement :: (Store s, MemoStore ms, RepoStore rs) => s -> ms -> rs -> RepoStatement e -> IO ()
-runRepoStatement store memoStore repoStore (RepoStatement f) =
-  saveRepoRoot store repoStore . f store memoStore =<< loadRepoRoot store repoStore
+runRepoStatement :: Repo e -> RepoStatement e -> IO ()
+runRepoStatement repo@Repo
+  { repo_store = store
+  , repo_memoStore = memoStore
+  } (RepoStatement f) = saveRepoRoot repo . f store memoStore =<< loadRepoRoot repo
