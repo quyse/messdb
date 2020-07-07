@@ -79,7 +79,7 @@ instance SchemaEncoding StandardSchema where
 
   constrainSchemaType = constrainStandardSchemaType
 
-class (Typeable a, TableKey a, TableValue a) => StandardSchemaType a where
+class (Typeable a, TableKey a, TableValue a, Show a) => StandardSchemaType a where
   standardSchema :: Proxy a -> StandardSchema
 
   hasCsvFromToField :: Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
@@ -200,6 +200,10 @@ instance StandardSchemaConstraint TableKey where
 
 instance StandardSchemaConstraint S.Serialize where
   -- All standard types support 'S.Serialize'.
+  constrainStandardSchemaType = Just ConstrainedType
+
+instance StandardSchemaConstraint Show where
+  -- All standard types support 'Show'.
   constrainStandardSchemaType = Just ConstrainedType
 
 -- CSV instances are optional.
