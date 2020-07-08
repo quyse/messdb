@@ -10,6 +10,7 @@ rec {
         messdb-sql = ./messdb-sql;
         messdb-store-lmdb = ./messdb-store-lmdb;
         messdb-store-sqlite = ./messdb-store-sqlite;
+        messdb-tool = ./messdb-tool;
       };
 
       deps = self: super: {

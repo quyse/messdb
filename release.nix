@@ -7,6 +7,7 @@ rec {
       messdb-schema
       messdb-store-lmdb
       messdb-store-sqlite
+      messdb-tool
     ;
   };
 }

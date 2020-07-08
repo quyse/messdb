@@ -8,6 +8,7 @@ packages:
 - messdb-sql
 - messdb-store-lmdb
 - messdb-store-sqlite
+- messdb-tool
 
 extra-deps:
 - simple-sql-parser-0.6.0
