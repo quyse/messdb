@@ -7,6 +7,7 @@ rec {
         messdb-base-testlib = ./messdb-base-testlib;
         messdb-repo = ./messdb-repo;
         messdb-schema = ./messdb-schema;
+        messdb-sql = ./messdb-sql;
         messdb-store-lmdb = ./messdb-store-lmdb;
         messdb-store-sqlite = ./messdb-store-sqlite;
       };

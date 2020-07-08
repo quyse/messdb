@@ -5,5 +5,9 @@ packages:
 - messdb-base-testlib
 - messdb-repo
 - messdb-schema
+- messdb-sql
 - messdb-store-lmdb
 - messdb-store-sqlite
+
+extra-deps:
+- simple-sql-parser-0.6.0

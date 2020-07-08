@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: simple-sql-parser-0.6.0@sha256:ce8f602fa81001287deb25af7b711fc45e1cdf36ff7702edde5dee2358f19a37,5580
+    pantry-tree:
+      size: 2752
+      sha256: cd333c976b4b12425d0eed28749884551a4595dd249cc6d6b75c34e4ce7688cc
+  original:
+    hackage: simple-sql-parser-0.6.0
 snapshots:
 - completed:
     size: 531674
