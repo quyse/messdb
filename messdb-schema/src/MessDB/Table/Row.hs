@@ -5,13 +5,18 @@ module MessDB.Table.Row
   , SomeRowField(..)
   , IsRow(..)
   , HasRowField(..)
+  , RowFromJson(..)
+  , RowToJson(..)
   , HasCsvColumnNames(..)
   , HasCsvFromRecord(..)
   , HasCsvToRecord(..)
   , csvParseRecordWithHeader
   ) where
 
+import qualified Data.Aeson as J
+import qualified Data.Aeson.Types as J
 import qualified Data.Csv as Csv
+import qualified Data.HashMap.Strict as HM
 import Data.Proxy
 import qualified Data.Serialize as S
 import Data.String
@@ -52,13 +57,47 @@ instance {-# OVERLAPS #-} HasRowField n f b => HasRowField n f (Row m a b) where
   getRowField n (Row _a b) = getRowField n b
   setRowField n v (Row a b) = Row a (setRowField n v b)
 
-instance (S.Serialize a, S.Serialize r) => S.Serialize (Row n a r) where
+instance (S.Serialize a, S.Serialize b) => S.Serialize (Row n a b) where
   put (Row a b) = do
     S.put a
     S.put b
   get = Row
     <$> S.get
     <*> S.get
+
+
+-- JSON instances
+
+-- Actual Aeson instances
+
+instance (KnownSymbol n, J.FromJSON a, RowFromJson b) => J.FromJSON (Row n a b) where
+  parseJSON = J.withObject "row" rowParseJson
+
+instance (KnownSymbol n, J.ToJSON a, RowToJson b) => J.ToJSON (Row n a b) where
+  toJSON = J.Object . rowToJson
+  toEncoding = J.toEncoding . rowToJson -- does not use efficiency of 'J.Encoding' yet
+
+-- JSON helper classes and instances
+
+class RowFromJson a where
+  rowParseJson :: J.Object -> J.Parser a
+instance (KnownSymbol n, J.FromJSON a, RowFromJson b) => RowFromJson (Row n a b) where
+  rowParseJson = f Proxy where
+    f :: (KnownSymbol n, J.FromJSON a, RowFromJson b) => Proxy n -> J.Object -> J.Parser (Row n a b)
+    f pn fields = do
+      a <- fields J..: (fromString $ symbolVal pn)
+      Row a <$> rowParseJson fields
+instance RowFromJson () where
+  rowParseJson _ = return ()
+
+class RowToJson a where
+  rowToJson :: a -> J.Object
+instance (KnownSymbol n, J.ToJSON a, RowToJson b) => RowToJson (Row n a b) where
+  rowToJson = f Proxy where
+    f :: (KnownSymbol n, J.ToJSON a, RowToJson b) => Proxy n -> Row n a b -> J.Object
+    f pn (Row a b) = HM.insert (fromString $ symbolVal pn) (J.toJSON a) (rowToJson b)
+instance RowToJson () where
+  rowToJson () = HM.empty
 
 
 -- CSV instances

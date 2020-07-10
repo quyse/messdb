@@ -5,6 +5,7 @@ module MessDB.Schema.Standard
   ) where
 
 import Control.Monad
+import qualified Data.Aeson as J
 import qualified Data.Csv as Csv
 import Data.Int
 import Data.Kind
@@ -82,6 +83,13 @@ instance SchemaEncoding StandardSchema where
 class (Typeable a, TableKey a, TableValue a, Show a) => StandardSchemaType a where
   standardSchema :: Proxy a -> StandardSchema
 
+  hasFromToJson :: Maybe (ConstrainedType StandardSchema J.FromJSON a, ConstrainedType StandardSchema J.ToJSON a)
+  default hasFromToJson :: (J.FromJSON a, J.ToJSON a) => Maybe (ConstrainedType StandardSchema J.FromJSON a, ConstrainedType StandardSchema J.ToJSON a)
+  hasFromToJson = Just (ConstrainedType, ConstrainedType)
+
+  hasRowFromToJson :: Maybe (ConstrainedType StandardSchema RowFromJson a, ConstrainedType StandardSchema RowToJson a)
+  hasRowFromToJson = Nothing
+
   hasCsvFromToField :: Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
   default hasCsvFromToField :: (Csv.FromField a, Csv.ToField a) => Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
   hasCsvFromToField = Just (ConstrainedType, ConstrainedType)
@@ -129,8 +137,17 @@ instance StandardSchemaType T.Text where
   standardSchema Proxy = StandardSchema_Text
 instance StandardSchemaType a => StandardSchemaType (Maybe a) where
   standardSchema Proxy = StandardSchema_Maybe (standardSchema (Proxy :: Proxy a))
+  hasFromToJson = f hasFromToJson where
+    f
+      :: Maybe (ConstrainedType StandardSchema J.FromJSON a, ConstrainedType StandardSchema J.ToJSON a)
+      -> Maybe (ConstrainedType StandardSchema J.FromJSON (Maybe a), ConstrainedType StandardSchema J.ToJSON (Maybe a))
+    f = \case
+      Just (ConstrainedType, ConstrainedType) -> Just (ConstrainedType, ConstrainedType)
+      Nothing -> Nothing
   hasCsvFromToField = f hasCsvFromToField where
-    f :: Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a) -> Maybe (ConstrainedType StandardSchema Csv.FromField (Maybe a), ConstrainedType StandardSchema Csv.ToField (Maybe a))
+    f
+      :: Maybe (ConstrainedType StandardSchema Csv.FromField a, ConstrainedType StandardSchema Csv.ToField a)
+      -> Maybe (ConstrainedType StandardSchema Csv.FromField (Maybe a), ConstrainedType StandardSchema Csv.ToField (Maybe a))
     f = \case
       Just (ConstrainedType, ConstrainedType) -> Just (ConstrainedType, ConstrainedType)
       Nothing -> Nothing
@@ -138,12 +155,14 @@ instance (StandardSchemaType a, StandardSchemaType b) => StandardSchemaType (a, 
   standardSchema Proxy = StandardSchema_Tuple2
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
+  hasFromToJson = Nothing
   hasCsvFromToField = Nothing
 instance (StandardSchemaType a, StandardSchemaType b, StandardSchemaType c) => StandardSchemaType (a, b, c) where
   standardSchema Proxy = StandardSchema_Tuple3
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
     (standardSchema (Proxy :: Proxy c))
+  hasFromToJson = Nothing
   hasCsvFromToField = Nothing
 instance (StandardSchemaType a, StandardSchemaType b, StandardSchemaType c, StandardSchemaType d) => StandardSchemaType (a, b, c, d) where
   standardSchema Proxy = StandardSchema_Tuple4
@@ -151,12 +170,31 @@ instance (StandardSchemaType a, StandardSchemaType b, StandardSchemaType c, Stan
     (standardSchema (Proxy :: Proxy b))
     (standardSchema (Proxy :: Proxy c))
     (standardSchema (Proxy :: Proxy d))
+  hasFromToJson = Nothing
   hasCsvFromToField = Nothing
 instance (KnownSymbol n, StandardSchemaType a, StandardSchemaType b) => StandardSchemaType (Row n a b) where
   standardSchema Proxy = StandardSchema_Row
     (T.pack (symbolVal (Proxy :: Proxy n)))
     (standardSchema (Proxy :: Proxy a))
     (standardSchema (Proxy :: Proxy b))
+  hasFromToJson = f (hasFromToJson, hasRowFromToJson) where
+    f ::
+      ( Maybe (ConstrainedType StandardSchema J.FromJSON a, ConstrainedType StandardSchema J.ToJSON a)
+      , Maybe (ConstrainedType StandardSchema RowFromJson b, ConstrainedType StandardSchema RowToJson b)
+      )
+      -> Maybe (ConstrainedType StandardSchema J.FromJSON (Row n a b), ConstrainedType StandardSchema J.ToJSON (Row n a b))
+    f = \case
+      (Just (ConstrainedType, ConstrainedType), Just (ConstrainedType, ConstrainedType)) -> Just (ConstrainedType, ConstrainedType)
+      _ -> Nothing
+  hasRowFromToJson = f (hasFromToJson, hasRowFromToJson) where
+    f ::
+      ( Maybe (ConstrainedType StandardSchema J.FromJSON a, ConstrainedType StandardSchema J.ToJSON a)
+      , Maybe (ConstrainedType StandardSchema RowFromJson b, ConstrainedType StandardSchema RowToJson b)
+      )
+      -> Maybe (ConstrainedType StandardSchema RowFromJson (Row n a b), ConstrainedType StandardSchema RowToJson (Row n a b))
+    f = \case
+      (Just (ConstrainedType, ConstrainedType), Just (ConstrainedType, ConstrainedType)) -> Just (ConstrainedType, ConstrainedType)
+      _ -> Nothing
   hasCsvFromToField = Nothing
   hasCsvDefaultOrdered = f hasHasCsvColumnNames where
     f :: Maybe (ConstrainedType StandardSchema HasCsvColumnNames b) -> Maybe (ConstrainedType StandardSchema Csv.DefaultOrdered (Row n a b))
@@ -201,6 +239,12 @@ instance StandardSchemaConstraint TableKey where
 instance StandardSchemaConstraint S.Serialize where
   -- All standard types support 'S.Serialize'.
   constrainStandardSchemaType = Just ConstrainedType
+
+-- JSON instances are optional.
+instance StandardSchemaConstraint J.FromJSON where
+  constrainStandardSchemaType = fst <$> hasFromToJson
+instance StandardSchemaConstraint J.ToJSON where
+  constrainStandardSchemaType = snd <$> hasFromToJson
 
 instance StandardSchemaConstraint Show where
   -- All standard types support 'Show'.
