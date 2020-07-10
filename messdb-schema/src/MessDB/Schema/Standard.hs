@@ -5,7 +5,6 @@ module MessDB.Schema.Standard
   ) where
 
 import Control.Monad
-import qualified Data.ByteString as B
 import qualified Data.Csv as Csv
 import Data.Int
 import Data.Kind
@@ -19,6 +18,7 @@ import GHC.TypeLits
 
 import MessDB.Schema
 import MessDB.Schema.Util
+import MessDB.Table.Bytes
 import MessDB.Table.Row
 import MessDB.Table.Types
 
@@ -35,7 +35,7 @@ data StandardSchema
   | StandardSchema_Word8
   | StandardSchema_Float
   | StandardSchema_Double
-  | StandardSchema_ByteString
+  | StandardSchema_Bytes
   | StandardSchema_Text
   | StandardSchema_Maybe !StandardSchema
   | StandardSchema_Tuple2 !StandardSchema !StandardSchema
@@ -64,7 +64,7 @@ instance SchemaEncoding StandardSchema where
     StandardSchema_Word8 -> Schema (Proxy :: Proxy Word8)
     StandardSchema_Float -> Schema (Proxy :: Proxy Float)
     StandardSchema_Double -> Schema (Proxy :: Proxy Double)
-    StandardSchema_ByteString -> Schema (Proxy :: Proxy B.ByteString)
+    StandardSchema_Bytes -> Schema (Proxy :: Proxy Bytes)
     StandardSchema_Text -> Schema (Proxy :: Proxy T.Text)
     StandardSchema_Maybe e -> case decodeSchema e of
       Schema p -> Schema $ liftM Just p
@@ -123,8 +123,8 @@ instance StandardSchemaType Float where
   standardSchema Proxy = StandardSchema_Float
 instance StandardSchemaType Double where
   standardSchema Proxy = StandardSchema_Double
-instance StandardSchemaType B.ByteString where
-  standardSchema Proxy = StandardSchema_ByteString
+instance StandardSchemaType Bytes where
+  standardSchema Proxy = StandardSchema_Bytes
 instance StandardSchemaType T.Text where
   standardSchema Proxy = StandardSchema_Text
 instance StandardSchemaType a => StandardSchemaType (Maybe a) where

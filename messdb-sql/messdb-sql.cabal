@@ -20,7 +20,6 @@ library
   hs-source-dirs:      src
   build-depends:
     base
-    , bytestring
     , messdb-base
     , messdb-repo
     , messdb-schema

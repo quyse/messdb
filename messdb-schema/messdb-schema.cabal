@@ -18,6 +18,7 @@ library
     MessDB.Schema.Standard
     MessDB.Schema.Util
     MessDB.Table
+    MessDB.Table.Bytes
     MessDB.Table.Row
     MessDB.Table.Types
   hs-source-dirs:      src
@@ -28,6 +29,7 @@ library
     , cassava
     , cereal
     , cereal-text
+    , memory
     , messdb-base
     , template-haskell
     , text

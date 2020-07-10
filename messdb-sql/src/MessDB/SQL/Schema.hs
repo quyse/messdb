@@ -9,7 +9,6 @@ module MessDB.SQL.Schema
 
 import Control.Monad
 import Control.Monad.Trans.Except
-import qualified Data.ByteString as B
 import Data.Foldable
 import Data.Int
 import Data.Maybe
@@ -21,6 +20,7 @@ import qualified Language.SQL.SimpleSQL.Syntax as SS
 import MessDB.Schema
 import MessDB.Schema.Standard
 import MessDB.Table
+import MessDB.Table.Bytes
 import MessDB.Table.Row
 
 class SqlSchema e where
@@ -70,7 +70,7 @@ instance SqlSchema StandardSchema where
       "int64" -> pure $ Schema (Proxy :: Proxy Int64)
       "real" -> pure $ Schema (Proxy :: Proxy Float)
       "double precision" -> pure $ Schema (Proxy :: Proxy Double)
-      "bytes" -> pure $ Schema (Proxy :: Proxy B.ByteString)
+      "bytes" -> pure $ Schema (Proxy :: Proxy Bytes)
       "text" -> pure $ Schema (Proxy :: Proxy T.Text)
       _ -> throwE $ SqlSchemaException_unsupportedType t
     _ -> throwE $ SqlSchemaException_unsupportedType t
