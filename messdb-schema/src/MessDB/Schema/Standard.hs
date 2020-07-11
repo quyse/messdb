@@ -108,6 +108,7 @@ class (Typeable a, TableKey a, TableValue a, Show a) => StandardSchemaType a whe
 
 instance StandardSchemaType () where
   standardSchema Proxy = StandardSchema_Empty
+  hasRowFromToJson = Just (ConstrainedType, ConstrainedType)
   hasCsvFromToField = Nothing
   hasHasCsvColumnNames = Just ConstrainedType
   hasHasCsvFromToRecord = Just (ConstrainedType, ConstrainedType)
@@ -245,6 +246,10 @@ instance StandardSchemaConstraint J.FromJSON where
   constrainStandardSchemaType = fst <$> hasFromToJson
 instance StandardSchemaConstraint J.ToJSON where
   constrainStandardSchemaType = snd <$> hasFromToJson
+instance StandardSchemaConstraint RowFromJson where
+  constrainStandardSchemaType = fst <$> hasRowFromToJson
+instance StandardSchemaConstraint RowToJson where
+  constrainStandardSchemaType = snd <$> hasRowFromToJson
 
 instance StandardSchemaConstraint Show where
   -- All standard types support 'Show'.
