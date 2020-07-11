@@ -13,6 +13,7 @@ module MessDB.Repo
   , loadRepoTable
   , saveRepoTable
   , runRepoStatement
+  , repoTableSchema
   ) where
 
 import Control.Exception
@@ -48,7 +49,7 @@ instance S.Serialize (RepoTable e k v)
 
 -- | Table in repository hiding key/value types.
 data SomeRepoTable e where
-  SomeRepoTable :: (TableKey k, S.Serialize v, SchemaTypeClass e k, SchemaTypeClass e v) => RepoTable e k v -> SomeRepoTable e
+  SomeRepoTable :: (TableKey k, TableValue v, SchemaTypeClass e k, SchemaTypeClass e v) => RepoTable e k v -> SomeRepoTable e
 
 -- Serialization of SomeRepoTable stores key/value types.
 instance IsRepo e => S.Serialize (SomeRepoTable e) where
@@ -118,3 +119,8 @@ runRepoStatement repo@Repo
   { repo_store = store
   , repo_memoStore = memoStore
   } (RepoStatement f) = saveRepoRoot repo . f store memoStore =<< loadRepoRoot repo
+
+repoTableSchema :: IsRepo e => SomeRepoTable e -> (ConstrainedSchema e TableKey, ConstrainedSchema e TableValue)
+repoTableSchema (SomeRepoTable repoTable) = f Proxy Proxy repoTable where
+  f :: (IsRepo e, TableKey k, TableValue v, SchemaTypeClass e k, SchemaTypeClass e v) => Proxy k -> Proxy v -> RepoTable e k v -> (ConstrainedSchema e TableKey, ConstrainedSchema e TableValue)
+  f pk pv _ = (ConstrainedSchema pk, ConstrainedSchema pv)

@@ -18,7 +18,8 @@ executable messdb-tool
     MessDB.Tool.Csv
   hs-source-dirs:      src
   build-depends:
-    base
+    aeson
+    , base
     , bytestring
     , cassava
     , messdb-base

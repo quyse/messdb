@@ -4,7 +4,10 @@ module Main(main) where
 
 import Control.Monad
 import Control.Monad.Trans.Except
+import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy.Char8 as BLC8
+import Data.Proxy
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.IO as TL
@@ -15,6 +18,7 @@ import System.Exit
 import System.IO
 
 import MessDB.Repo
+import MessDB.Schema
 import MessDB.Schema.Standard
 import MessDB.SQL
 import MessDB.Store.Sqlite
@@ -30,6 +34,9 @@ data OptionCommand
     { optionCommand_commands :: [String]
     , optionCommand_files :: [String]
     , optionCommand_printParsedSQL :: Bool
+    }
+  | OptionCommand_printSchema
+    { optionCommand_table :: String
     }
   | OptionCommand_importCsv
     { optionCommand_table :: String
@@ -76,6 +83,17 @@ main = run =<< O.execParser parser where
               <> O.help "Pretty-print all SQL queries to verify that queries are parsed correctly"
               )
           )) (O.fullDesc <> O.progDesc "Run SQL statements or queries")
+        )
+      <> O.command "print-schema"
+        (  O.info
+          (O.helper <*> (OptionCommand_printSchema
+            <$> O.strOption
+              (  O.long "table"
+              <> O.short 't'
+              <> O.metavar "TABLE"
+              <> O.help "Table to import into"
+              )
+          )) (O.fullDesc <> O.progDesc "Print table schema")
         )
       <> O.command "import-csv"
         (  O.info
@@ -157,6 +175,13 @@ main = run =<< O.execParser parser where
           void $ return (repoQuery :: RepoQuery StandardSchema)
         Right repoStatement -> runRepoStatement repo repoStatement
 
+    OptionCommand_printSchema
+      { optionCommand_table = RepoTableName . T.pack -> tableName
+      } -> do
+      (ConstrainedSchema keyProxy, ConstrainedSchema valueProxy) <- repoTableSchema <$> loadTableOrDie repo tableName
+      printJson $ encodeSchema keyProxy `asProxyTypeOf` repo
+      printJson $ encodeSchema valueProxy `asProxyTypeOf` repo
+
     OptionCommand_importCsv
       { optionCommand_table = RepoTableName . T.pack -> tableName
       , optionCommand_file = csvFile
@@ -166,3 +191,11 @@ main = run =<< O.execParser parser where
       { optionCommand_table = RepoTableName . T.pack -> tableName
       , optionCommand_file = csvFile
       } -> BL.writeFile csvFile =<< repoTableExportCsv repo tableName
+
+loadTableOrDie :: IsRepo e => Repo e -> RepoTableName -> IO (SomeRepoTable e)
+loadTableOrDie repo tableName@(RepoTableName tableNameText) =
+  maybe (die $ "table " <> T.unpack tableNameText <> " not found") return
+  =<< loadRepoTable repo tableName
+
+printJson :: J.ToJSON a => a -> IO ()
+printJson = BLC8.putStrLn . J.encode
