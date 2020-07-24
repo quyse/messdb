@@ -10,8 +10,10 @@ module MessDB.Repo
   , RepoStore(..)
   , RepoQuery(..)
   , RepoStatement(..)
+  , getRepoTable
   , loadRepoTable
   , saveRepoTable
+  , runRepoQuery
   , runRepoStatement
   , repoTableSchema
   ) where
@@ -61,9 +63,9 @@ instance IsRepo e => S.Serialize (SomeRepoTable e) where
     Just (ConstrainedSchema keyProxy :: ConstrainedSchema e TableKey) <- constrainSchema . decodeSchema <$> S.get
     Just (ConstrainedSchema valueProxy :: ConstrainedSchema e TableValue) <- constrainSchema . decodeSchema <$> S.get
     let
-      getRepoTable :: Proxy k -> Proxy v -> S.Get (RepoTable e k v)
-      getRepoTable Proxy Proxy = S.get
-    SomeRepoTable <$> getRepoTable keyProxy valueProxy
+      getTable :: Proxy k -> Proxy v -> S.Get (RepoTable e k v)
+      getTable Proxy Proxy = S.get
+    SomeRepoTable <$> getTable keyProxy valueProxy
 
 
 -- | Table name in repository.
@@ -95,17 +97,18 @@ saveRepoRoot Repo
   save store rootTable
   repoStoreSetRoot repoStore (tableHash rootTable)
 
+-- | Get repo table by name from root.
+getRepoTable :: (IsRepo e, Store s, MemoStore ms) => s -> ms -> RepoRoot e -> RepoTableName -> Maybe (SomeRepoTable e)
+getRepoTable store memoStore (RepoRoot rootTable) tableName = case tableToRows $ rangeFilterTable store memoStore (tableKeyRangeSingleton tableName) rootTable of
+  [(_, table)] -> Just table
+  _ -> Nothing
+
 -- | Load repo table by name.
 loadRepoTable :: IsRepo e => Repo e -> RepoTableName -> IO (Maybe (SomeRepoTable e))
 loadRepoTable repo@Repo
   { repo_store = store
   , repo_memoStore = memoStore
-  } tableName = do
-  RepoRoot rootTable <- loadRepoRoot repo
-  case tableToRows $ rangeFilterTable store memoStore (tableKeyRangeSingleton tableName) rootTable of
-    [(_, table)] -> return $ Just table
-    [] -> return Nothing
-    _ -> fail "loadRepoTable: impossible"
+  } tableName = flip (getRepoTable store memoStore) tableName <$> loadRepoRoot repo
 
 -- | Save repo table by name.
 -- Table must be saved already.
@@ -113,6 +116,12 @@ saveRepoTable :: IsRepo e => Repo e -> RepoTableName -> SomeRepoTable e -> IO ()
 saveRepoTable repo tableName table =
   runRepoStatement repo $ RepoStatement $ \store memoStore (RepoRoot rootTable) ->
     RepoRoot $ tableInsert store memoStore tableName table rootTable
+
+runRepoQuery :: Repo e -> RepoQuery e -> IO (SomeRepoTable e)
+runRepoQuery repo@Repo
+  { repo_store = store
+  , repo_memoStore = memoStore
+  } (RepoQuery f) = f store memoStore <$> loadRepoRoot repo
 
 runRepoStatement :: Repo e -> RepoStatement e -> IO ()
 runRepoStatement repo@Repo

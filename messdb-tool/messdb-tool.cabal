@@ -16,6 +16,7 @@ executable messdb-tool
   main-is:             messdb-tool.hs
   other-modules:
     MessDB.Tool.Csv
+    MessDB.Tool.Json
   hs-source-dirs:      src
   build-depends:
     aeson

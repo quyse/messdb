@@ -22,7 +22,9 @@ import MessDB.Schema
 import MessDB.Schema.Standard
 import MessDB.SQL
 import MessDB.Store.Sqlite
+import MessDB.Table.Row
 import MessDB.Tool.Csv
+import MessDB.Tool.Json
 
 data Options = Options
   { options_dbPath :: String
@@ -43,6 +45,10 @@ data OptionCommand
     , optionCommand_file :: String
     }
   | OptionCommand_exportCsv
+    { optionCommand_table :: String
+    , optionCommand_file :: String
+    }
+  | OptionCommand_exportJson
     { optionCommand_table :: String
     , optionCommand_file :: String
     }
@@ -127,6 +133,22 @@ main = run =<< O.execParser parser where
               )
           )) (O.fullDesc <> O.progDesc "Export table as CSV")
         )
+      <> O.command "export-json"
+        (  O.info
+          (O.helper <*> (OptionCommand_exportJson
+            <$> O.strOption
+              (  O.long "table"
+              <> O.short 't'
+              <> O.metavar "TABLE"
+              <> O.help "Table to export from"
+              )
+            <*> O.strArgument
+              (  O.value "-" <> O.showDefault
+              <> O.metavar "JSON_FILE"
+              <> O.help ".json file name to export to, '-' for stdout"
+              )
+          )) (O.fullDesc <> O.progDesc "Export table as CSV")
+        )
       )
 
   run Options
@@ -170,9 +192,7 @@ main = run =<< O.execParser parser where
         Right eitherQueryOrStatement -> return eitherQueryOrStatement
 
       forM_ queriesAndStatements $ \case
-        Left repoQuery -> do
-          -- not implemented yet
-          void $ return (repoQuery :: RepoQuery StandardSchema)
+        Left repoQuery -> BLC8.putStrLn =<< repoTableExportToJsonLinesOrDie repo =<< runRepoQuery repo repoQuery
         Right repoStatement -> runRepoStatement repo repoStatement
 
     OptionCommand_printSchema
@@ -192,10 +212,18 @@ main = run =<< O.execParser parser where
       , optionCommand_file = csvFile
       } -> BL.writeFile csvFile =<< repoTableExportCsv repo tableName
 
+    OptionCommand_exportJson
+      { optionCommand_table = RepoTableName . T.pack -> tableName
+      , optionCommand_file = csvFile
+      } -> BL.writeFile csvFile =<< repoTableExportToJsonLinesOrDie repo =<< loadTableOrDie repo tableName
+
 loadTableOrDie :: IsRepo e => Repo e -> RepoTableName -> IO (SomeRepoTable e)
 loadTableOrDie repo tableName@(RepoTableName tableNameText) =
   maybe (die $ "table " <> T.unpack tableNameText <> " not found") return
   =<< loadRepoTable repo tableName
+
+repoTableExportToJsonLinesOrDie :: (IsRepo e, SchemaConstraintClass e RowToJson) => Repo e -> SomeRepoTable e -> IO BL.ByteString
+repoTableExportToJsonLinesOrDie repo table = maybe (die "table schema does not support JSON encoding") return =<< repoTableExportToJsonLines repo table
 
 printJson :: J.ToJSON a => a -> IO ()
 printJson = BLC8.putStrLn . J.encode
