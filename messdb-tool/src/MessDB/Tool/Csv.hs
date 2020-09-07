@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedLists, OverloadedStrings #-}
+{-# LANGUAGE OverloadedLists, OverloadedStrings, ViewPatterns #-}
 
 module MessDB.Tool.Csv
   ( repoTableImportCsv
@@ -27,9 +27,8 @@ repoTableImportCsv repo@Repo
   , repo_memoStore = memoStore
   } tableName@(RepoTableName tableNameText) csvBytes = do
   SomeRepoTable RepoTable
-    { repoTable_tableRef = tableRef
+    { repoTable_tableRef = resolveTableRef store -> oldTable
     } <- maybe (die $ "Table " <> T.unpack tableNameText <> " does not exist") return =<< loadRepoTable repo tableName
-  oldTable <- resolveTableRef store tableRef
   newTable <- case
     ( constrainTable repo oldTable (Proxy :: Proxy HasCsvColumnNames)
     , constrainTable repo oldTable (Proxy :: Proxy HasCsvFromRecord)
@@ -71,9 +70,8 @@ repoTableExportCsv repo@Repo
   { repo_store = store
   } tableName@(RepoTableName tableNameText) = do
   SomeRepoTable RepoTable
-    { repoTable_tableRef = tableRef
+    { repoTable_tableRef = resolveTableRef store -> table
     } <- maybe (die $ "Table " <> T.unpack tableNameText <> " does not exist") return =<< loadRepoTable repo tableName
-  table <- resolveTableRef store tableRef
   case
     ( constrainTable repo table (Proxy :: Proxy HasCsvColumnNames)
     , constrainTable repo table (Proxy :: Proxy Csv.ToRecord)

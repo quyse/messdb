@@ -13,12 +13,12 @@ import MessDB.Schema
 import MessDB.Table
 import MessDB.Table.Row
 
-repoTableExportToJsonLines :: (IsRepo e, SchemaConstraintClass e RowToJson) => Repo e -> SomeRepoTable e -> IO (Maybe (BL.ByteString))
+repoTableExportToJsonLines :: (IsRepo e, SchemaConstraintClass e RowToJson) => Repo e -> SomeRepoTable e -> Maybe (BL.ByteString)
 repoTableExportToJsonLines repo@Repo
   { repo_store = store
   } (SomeRepoTable RepoTable
   { repoTable_tableRef = tableRef
-  }) = f repo constrainSchemaType constrainSchemaType <$> resolveTableRef store tableRef where
+  }) = f repo constrainSchemaType constrainSchemaType $ resolveTableRef store tableRef where
   f :: (TableKey k, TableValue v) => Repo e -> Maybe (ConstrainedType e RowToJson k) -> Maybe (ConstrainedType e RowToJson v) -> Table k v -> Maybe BL.ByteString
   f _repo m1 m2 table = case (m1, m2) of
     (Just ConstrainedType, Just ConstrainedType) -> Just $ rowsToJsonLines $ tableToRows table

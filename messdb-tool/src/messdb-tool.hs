@@ -223,7 +223,7 @@ loadTableOrDie repo tableName@(RepoTableName tableNameText) =
   =<< loadRepoTable repo tableName
 
 repoTableExportToJsonLinesOrDie :: (IsRepo e, SchemaConstraintClass e RowToJson) => Repo e -> SomeRepoTable e -> IO BL.ByteString
-repoTableExportToJsonLinesOrDie repo table = maybe (die "table schema does not support JSON encoding") return =<< repoTableExportToJsonLines repo table
+repoTableExportToJsonLinesOrDie repo table = maybe (die "table schema does not support JSON encoding") return $ repoTableExportToJsonLines repo table
 
 printJson :: J.ToJSON a => a -> IO ()
 printJson = BLC8.putStrLn . J.encode

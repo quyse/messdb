@@ -154,42 +154,50 @@ instance Persistable Node where
         } -> save store itemNode
       _ -> return ()
     return nodeEncoded
-  load store hash = do
-    node@Node
-      { node_hash = nodeHash
-      , node_items = items
-      } <- either fail return . S.runGetLazy decode =<< storeLoad store hash
-    unless (nodeHash == hash) $ fail "node hash is wrong"
-    let
-      hydrateItems = V.map $ \item -> case item of
-        ValueItem {} -> item
-        InlineNodeItem
-          { item_node = subNode@Node
-            { node_items = subItems
-            }
-          } -> item
-          { item_node = subNode
-            { node_items = hydrateItems subItems
-            }
-          }
-        ExternalNodeItem
-          { item_node = subNode@Node
-            { node_hash = itemNodeHash
-            }
-          } -> item
-          { item_node = let
-            Node
-              { node_items = loadedNodeItems
-              , node_encoded = loadedNodeEncoded
-              } = unsafePerformIO $ load store itemNodeHash
-            in subNode
-              { node_items = loadedNodeItems
-              , node_encoded = loadedNodeEncoded
+  load store hash = Node
+    { node_hash = hash
+    , node_items = loadedNodeItems
+    , node_encoded = loadedNodeEncoded
+    } where
+    Node
+      { node_items = loadedNodeItems
+      , node_encoded = loadedNodeEncoded
+      } = unsafePerformIO $ do
+      node@Node
+        { node_hash = nodeHash
+        , node_items = items
+        } <- either fail return . S.runGetLazy decode =<< storeLoad store hash
+      unless (nodeHash == hash) $ fail "node hash is wrong"
+      let
+        hydrateItems = V.map $ \item -> case item of
+          ValueItem {} -> item
+          InlineNodeItem
+            { item_node = subNode@Node
+              { node_items = subItems
               }
-          }
-    return node
-      { node_items = hydrateItems items
-      }
+            } -> item
+            { item_node = subNode
+              { node_items = hydrateItems subItems
+              }
+            }
+          ExternalNodeItem
+            { item_node = subNode@Node
+              { node_hash = itemNodeHash
+              }
+            } -> item
+            { item_node = let
+              Node
+                { node_items = loadedItemNodeItems
+                , node_encoded = loadedItemNodeEncoded
+                } = load store itemNodeHash
+              in subNode
+                { node_items = loadedItemNodeItems
+                , node_encoded = loadedItemNodeEncoded
+                }
+            }
+      return node
+        { node_items = hydrateItems items
+        }
 
 newtype Trie = Trie
   { unTrie :: Node
@@ -245,13 +253,13 @@ unsafeTrieFromHash nodeHash = Trie Node
 -- | Load trie from store again.
 -- Uses only hash. Good for hydrating trie from `unsafeTrieFromHash`.
 reloadTrie :: Store s => s -> Trie -> Trie
-reloadTrie store trie = Trie $ unsafePerformIO $ load store $ trieHash trie
+reloadTrie store trie = Trie $ load store $ trieHash trie
 
 -- | Ensure trie is saved, and load it again.
 syncTrie :: Store s => s -> Trie -> Trie
 syncTrie store trie = Trie $ unsafePerformIO $ do
   save store trie
-  load store $ trieHash trie
+  return $ load store $ trieHash trie
 
 trieToItems :: Trie -> [(Key, Value)]
 trieToItems (Trie node) = unpackNode mempty node where
@@ -283,11 +291,11 @@ memoize store memoStore memoHash node = unsafePerformIO $ do
       nodeHash = node_hash node
     return (Just $ unStoreKey nodeHash, nodeHash)
 
-  case r of
+  return $ load store $ case r of
     -- hash loaded from cache, load node
-    Left nodeHash -> load store $ StoreKey nodeHash
+    Left nodeHash -> StoreKey nodeHash
     -- node was built, reload it by hash
-    Right nodeHash -> load store nodeHash
+    Right nodeHash -> nodeHash
 
 -- | Merge tries.
 mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> V.Vector Trie -> Trie

@@ -86,7 +86,7 @@ loadRepoRoot :: Repo e -> IO (RepoRoot e)
 loadRepoRoot Repo
   { repo_store = store
   , repo_repoStore = repoStore
-  } = fmap RepoRoot . either (\SomeException {} -> return emptyTable) (load store) =<< try (repoStoreGetRoot repoStore)
+  } = fmap RepoRoot . either (\SomeException {} -> return emptyTable) (return . load store) =<< try (repoStoreGetRoot repoStore)
 
 -- | Save repo root.
 saveRepoRoot :: Repo e -> RepoRoot e -> IO ()

@@ -64,8 +64,8 @@ instance Encodable StoreKey where
 class Persistable a where
   -- | Save object, recursively including children into store.
   save :: Store s => s -> a -> IO ()
-  -- | Load object with all children.
-  load :: Store s => s -> StoreKey -> IO a
+  -- | Load object lazily with all children.
+  load :: Store s => s -> StoreKey -> a
 
 storeKeyToString :: StoreKey -> String
 storeKeyToString = T.unpack . T.decodeUtf8 . BA.convertToBase BA.Base16 . BS.fromShort . unStoreKey

@@ -56,8 +56,8 @@ refTable :: Table k v -> TableRef k v
 refTable = TableRef . tableHash
 
 -- | Load table by ref.
-resolveTableRef :: Store s => s -> TableRef k v -> IO (Table k v)
-resolveTableRef store = fmap Table . load store . unTableRef
+resolveTableRef :: Store s => s -> TableRef k v -> Table k v
+resolveTableRef store = Table . load store . unTableRef
 
 newtype TableTransformFunc k v k' v' = TableTransformFunc TransformFunc
 
