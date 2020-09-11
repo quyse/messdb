@@ -20,6 +20,8 @@ library
     MessDB.Store.Memory
     MessDB.Store.Stat
     MessDB.Trie
+  other-modules:
+    MessDB.Trie.Path
   hs-source-dirs:      src
   build-depends:
     base

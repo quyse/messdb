@@ -3,7 +3,7 @@
 module MessDB.Trie
   ( Node()
   , Trie(..)
-  , Key(..)
+  , Key
   , Value
   , emptyTrie
   , singletonTrie
@@ -38,32 +38,29 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Short as BS
 import Data.Int
-import Data.List
-import Data.Maybe
 import qualified Data.Serialize as S
 import Data.String
 import qualified Data.Vector as V
 import Data.Word
-import MessDB.Store
 import System.IO.Unsafe(unsafePerformIO)
 
-newtype Key = Key
-  { unKey :: BS.ShortByteString
-  } deriving (Eq, Ord, Semigroup, Monoid, S.Serialize, IsString, Show)
+import MessDB.Store
+import MessDB.Trie.Path
 
+type Key = BS.ShortByteString
 type Value = B.ByteString
 
 data Item
   = ValueItem
-    { item_path :: {-# UNPACK #-} !Key
+    { item_path :: {-# UNPACK #-} !Path
     , item_value :: Value
     }
   | InlineNodeItem
-    { item_path :: {-# UNPACK #-} !Key
+    { item_path :: {-# UNPACK #-} !Path
     , item_node :: Node
     }
   | ExternalNodeItem
-    { item_path :: {-# UNPACK #-} !Key
+    { item_path :: {-# UNPACK #-} !Path
     , item_node :: Node
     }
 
@@ -215,7 +212,7 @@ itemsToNode items = node where
   h = C.hashlazy nodeEncoded
 
 maxInlineNodeSize :: Int64
-maxInlineNodeSize = 4096
+maxInlineNodeSize = 256
 
 isNodeBig :: Node -> Bool
 isNodeBig Node
@@ -229,11 +226,11 @@ emptyNode :: Node
 emptyNode = itemsToNode V.empty
 
 singletonTrie :: Key -> Value -> Trie
-singletonTrie key value = Trie $ singletonNode key value
+singletonTrie key value = Trie $ singletonNode (bytesToPath key) value
 
-singletonNode :: Key -> Value -> Node
-singletonNode key value = itemsToNode $ V.singleton ValueItem
-  { item_path = key
+singletonNode :: Path -> Value -> Node
+singletonNode path value = itemsToNode $ V.singleton ValueItem
+  { item_path = path
   , item_value = value
   }
 
@@ -269,7 +266,7 @@ trieToItems (Trie node) = unpackNode mempty node where
     unpackItem ValueItem
       { item_path = path
       , item_value = value
-      } = [(prefix <> path, value)]
+      } = [(bytesFromPath $ prefix <> path, value)]
     unpackItem InlineNodeItem
       { item_path = path
       , item_node = subNode
@@ -302,7 +299,7 @@ mergeTries :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> V.Vector Trie ->
 mergeTries store memoStore foldFunc = Trie . mergeNodes store memoStore foldFunc mempty . V.map unTrie
 
 -- | Merge non-zero number of nodes.
-mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> Key -> V.Vector Node -> Node
+mergeNodes :: (Store s, MemoStore ms) => s -> ms -> FoldFunc -> Path -> V.Vector Node -> Node
 mergeNodes store memoStore foldFunc@Func
   { func_key = foldKey
   , func_func = fold
@@ -322,13 +319,13 @@ mergeNodes store memoStore foldFunc@Func
   step :: V.Vector [Item] -> [Item]
   step itemsLists = let
     -- first byte of a path of first item
-    maybeFirstPathByte :: [Item] -> Maybe (Maybe Word8)
-    maybeFirstPathByte [] = Nothing
-    maybeFirstPathByte ((item_path -> path) : _) = Just (maybeFirstByte path)
+    maybeFirstItemFirstPathByte :: [Item] -> Maybe (Maybe Word8)
+    maybeFirstItemFirstPathByte [] = Nothing
+    maybeFirstItemFirstPathByte ((item_path -> path) : _) = Just (pathMaybeFirstByte path)
 
     maybeMinimumMaybeFirstByte :: Maybe (Maybe Word8)
     maybeMinimumMaybeFirstByte = let
-      maybeFirstBytes = V.mapMaybe maybeFirstPathByte itemsLists
+      maybeFirstBytes = V.mapMaybe maybeFirstItemFirstPathByte itemsLists
       in if V.null maybeFirstBytes
         then Nothing
         else Just $ V.minimum maybeFirstBytes
@@ -337,7 +334,7 @@ mergeNodes store memoStore foldFunc@Func
       Just minimumMaybeFirstByte -> let
         -- predicate for extracting first items with the same first byte
         extractItem = \case
-          item@(item_path -> path) : restItems | maybeFirstByte path == minimumMaybeFirstByte -> (Just item, restItems)
+          item@(item_path -> path) : restItems | pathMaybeFirstByte path == minimumMaybeFirstByte -> (Just item, restItems)
           items -> (Nothing, items)
 
         currentItems :: V.Vector Item
@@ -356,11 +353,11 @@ mergeNodes store memoStore foldFunc@Func
               else []
             sharedPrefix _ _ = []
             -- max prefix of current items
-            maxPrefix = BS.pack $ V.foldl1 sharedPrefix $ V.map (BS.unpack . unKey . item_path) currentItems
-            maxPrefixLength = BS.length maxPrefix
+            maxPrefix = pathPack $ V.foldl1 sharedPrefix $ V.map (pathUnpack . item_path) currentItems
+            maxPrefixLength = pathLength maxPrefix
 
             -- remove prefix from path
-            dropPathPrefix = Key . BS.pack . drop maxPrefixLength . BS.unpack . unKey
+            dropPathPrefix = pathPack . drop maxPrefixLength . pathUnpack
             -- remove prefix from item path
             dropItemPathPrefix item = item
               { item_path = dropPathPrefix $ item_path item
@@ -388,11 +385,11 @@ mergeNodes store memoStore foldFunc@Func
                 in V.concatMap (explodeSubItem $ dropPathPrefix path) subItems
               -- explode external node items with zero prefix
               ExternalNodeItem
-                { item_path = Key path
+                { item_path = path
                 , item_node = Node
                   { node_items = subItems
                   }
-                } | BS.length path == maxPrefixLength -> V.singleton $ itemsToNode subItems
+                } | pathLength path == maxPrefixLength -> V.singleton $ itemsToNode subItems
               _ -> V.singleton $ itemsToNode $ V.singleton $ dropItemPathPrefix item
 
             -- if prefix is zero
@@ -400,32 +397,32 @@ mergeNodes store memoStore foldFunc@Func
               -- just fold the value items
               then ValueItem
                 { item_path = mempty
-                , item_value = V.foldl1 (fold pathPrefix) $ V.map item_value currentItems
+                , item_value = V.foldl1 (fold $ bytesFromPath pathPrefix) $ V.map item_value currentItems
                 } : nextStep
               -- else recursively merge tries
               else let
                 mergedSubNode@Node
                   { node_items = mergedSubNodeItems
-                  } = mergeNodes store memoStore foldFunc (pathPrefix <> Key maxPrefix) (V.concatMap packItem currentItems)
+                  } = mergeNodes store memoStore foldFunc (pathPrefix <> maxPrefix) (V.concatMap packItem currentItems)
                 mergedItem = case V.head mergedSubNodeItems of
                   -- do not wrap the only NodeItem into another item
                   subItem@InlineNodeItem
                     { item_path = path
                     } | V.length mergedSubNodeItems == 1 -> subItem
-                    { item_path = Key maxPrefix <> path
+                    { item_path = maxPrefix <> path
                     }
                   subItem@ExternalNodeItem
                     { item_path = path
                     } | V.length mergedSubNodeItems == 1 -> subItem
-                    { item_path = Key maxPrefix <> path
+                    { item_path = maxPrefix <> path
                     }
                   _ -> if isNodeBig mergedSubNode
                     then ExternalNodeItem
-                      { item_path = Key maxPrefix
+                      { item_path = maxPrefix
                       , item_node = mergedSubNode
                       }
                     else InlineNodeItem
-                      { item_path = Key maxPrefix
+                      { item_path = maxPrefix
                       , item_node = mergedSubNode
                       }
                 in mergedItem : nextStep
@@ -436,7 +433,7 @@ mergeNodes store memoStore foldFunc@Func
 sortTrie :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Trie -> Trie
 sortTrie store memoStore transformFunc foldFunc = Trie . sortNode store memoStore transformFunc foldFunc mempty . unTrie
 
-sortNode :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Key -> Node -> Node
+sortNode :: (Store s, MemoStore ms) => s -> ms -> TransformFunc -> FoldFunc -> Path -> Node -> Node
 sortNode store memoStore transformFunc@Func
   { func_key = transformKey
   , func_func = transform
@@ -460,7 +457,7 @@ sortNode store memoStore transformFunc@Func
     ValueItem
       { item_path = path
       , item_value = value
-      } -> V.singleton $ uncurry singletonNode $ transform (itemPathPrefix <> path) value
+      } -> V.singleton $ uncurry singletonNode $ first bytesToPath $ transform (bytesFromPath $ itemPathPrefix <> path) value
     InlineNodeItem
       { item_path = path
       , item_node = Node
@@ -474,9 +471,9 @@ sortNode store memoStore transformFunc@Func
 
 -- | Filter items included in specified range by key.
 rangeFilterTrie :: (Store s, MemoStore ms) => s -> ms -> KeyRange -> Trie -> Trie
-rangeFilterTrie store memoStore range = Trie . rangeFilterNode store memoStore range mempty . unTrie
+rangeFilterTrie store memoStore range = Trie . rangeFilterNode store memoStore (keyRangeToPathRange range) mempty . unTrie
 
-rangeFilterNode :: (Store s, MemoStore ms) => s -> ms -> KeyRange -> Key -> Node -> Node
+rangeFilterNode :: (Store s, MemoStore ms) => s -> ms -> PathRange -> Path -> Node -> Node
 rangeFilterNode store memoStore range pathPrefix Node
   { node_hash = rootNodeHash
   , node_items = rootNodeItems
@@ -495,13 +492,13 @@ rangeFilterNode store memoStore range pathPrefix Node
   rangeItem prefix item@((prefix <>) . item_path -> itemPath) = case item of
     ValueItem
       { item_value = value
-      } -> if keyRangeIncludes itemPath range then V.singleton $ singletonNode itemPath value else V.empty
-    _ -> case keyPrefixRangeRelation itemPath range of
-      KeyRangeRelation_in -> V.singleton $ itemsToNode $ V.singleton item
+      } -> if pathRangeIncludes itemPath range then V.singleton $ singletonNode itemPath value else V.empty
+    _ -> case pathPrefixRangeRelation itemPath range of
+      PathRangeRelation_in -> V.singleton $ itemsToNode $ V.singleton item
         { item_path = itemPath
         }
-      KeyRangeRelation_out -> V.empty
-      KeyRangeRelation_intersects -> case item of
+      PathRangeRelation_out -> V.empty
+      PathRangeRelation_intersects -> case item of
         ValueItem {} -> error "impossible: processed earlier"
         InlineNodeItem
           { item_node = Node
@@ -531,99 +528,44 @@ foldToLast = Func
   , func_func = \_k _a b -> b
   }
 
+-- | Create trie from items.
+itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, Value) -> Trie
+itemsToTrie store memoStore pairs = mergeTries store memoStore foldToLast tries where
+  tries = V.map (uncurry singletonTrie) pairs
 
--- | Range of keys.
+
+
+-- Key ranges.
+
 data KeyRange = KeyRange !KeyRangeEnd !KeyRangeEnd
 
-instance S.Serialize KeyRange where
-  put (KeyRange a b) = do
-    S.put a
-    S.put b
-  get = do
-    a <- S.get
-    b <- S.get
-    return $ KeyRange a b
-
--- | End of key range.
 data KeyRangeEnd
   = KeyRangeEnd_inclusive {-# UNPACK #-} !Key
   | KeyRangeEnd_exclusive {-# UNPACK #-} !Key
   | KeyRangeEnd_infinite
 
-instance S.Serialize KeyRangeEnd where
-  put = \case
-    KeyRangeEnd_inclusive k -> do
-      S.putWord8 0
-      S.put k
-    KeyRangeEnd_exclusive k -> do
-      S.putWord8 1
-      S.put k
-    KeyRangeEnd_infinite ->
-      S.putWord8 2
-  get = do
-    f <- S.getWord8
-    case f of
-      0 -> KeyRangeEnd_inclusive <$> S.get
-      1 -> KeyRangeEnd_exclusive <$> S.get
-      2 -> return KeyRangeEnd_infinite
-      _ -> fail "wrong key range end type"
-
--- | Calculate relation between single item and range.
-keyRangeIncludes :: Key -> KeyRange -> Bool
-keyRangeIncludes (Key key) (KeyRange lowerEnd upperEnd) = inLower && inUpper where
-  inLower = case lowerEnd of
-    KeyRangeEnd_inclusive (Key end) -> key >= end
-    KeyRangeEnd_exclusive (Key end) -> key > end
-    KeyRangeEnd_infinite -> True
-  inUpper = case upperEnd of
-    KeyRangeEnd_inclusive (Key end) -> key <= end
-    KeyRangeEnd_exclusive (Key end) -> key < end
-    KeyRangeEnd_infinite -> True
-
--- | Relation between something and key range.
 data KeyRangeRelation
   = KeyRangeRelation_in
   | KeyRangeRelation_out
   | KeyRangeRelation_intersects
   deriving Eq
 
--- | Calculate relation between prefix and range.
+keyRangeToPathRange :: KeyRange -> PathRange
+keyRangeToPathRange (KeyRange a b) = PathRange (f a) (f b) where
+  f = \case
+    KeyRangeEnd_inclusive k -> PathRangeEnd_inclusive $ bytesToPath k
+    KeyRangeEnd_exclusive k -> PathRangeEnd_exclusive $ bytesToPath k
+    KeyRangeEnd_infinite -> PathRangeEnd_infinite
+
+keyRangeIncludes :: Key -> KeyRange -> Bool
+keyRangeIncludes k = pathRangeIncludes (bytesToPath k) . keyRangeToPathRange
+
 keyPrefixRangeRelation :: Key -> KeyRange -> KeyRangeRelation
-keyPrefixRangeRelation (Key prefix) (KeyRange lowerEnd upperEnd) = let
-  isPrefixInLower = case lowerEnd of
-    KeyRangeEnd_inclusive (Key end) -> prefix >= end
-    KeyRangeEnd_exclusive (Key end) -> prefix > end
-    KeyRangeEnd_infinite -> True
-  isPrefixInUpper = case upperEnd of
-    KeyRangeEnd_inclusive (Key end) -> isPrefixLessUpper end
-    KeyRangeEnd_exclusive (Key end) -> isPrefixLessUpper end
-    KeyRangeEnd_infinite -> True
-  isPrefixIn = isPrefixInLower && isPrefixInUpper
-
-  isPrefixOutLower = case lowerEnd of
-    KeyRangeEnd_inclusive (Key end) -> isPrefixLessUpper end
-    KeyRangeEnd_exclusive (Key end) -> isPrefixLessUpper end
-    KeyRangeEnd_infinite -> False
-  isPrefixOutUpper = case upperEnd of
-    KeyRangeEnd_inclusive (Key end) -> prefix > end
-    KeyRangeEnd_exclusive (Key end) -> prefix >= end
-    KeyRangeEnd_infinite -> False
-  isPrefixOut = isPrefixOutLower || isPrefixOutUpper
-
-  isPrefixLessUpper end = prefix < end && (BS.length prefix >= BS.length end || isNothing (stripPrefix (BS.unpack prefix) (BS.unpack end)))
-
-  in if isPrefixIn
-    then KeyRangeRelation_in
-    else if isPrefixOut
-      then KeyRangeRelation_out
-      else KeyRangeRelation_intersects
-
-
--- | Create trie from items.
-itemsToTrie :: (Store s, MemoStore ms) => s -> ms -> V.Vector (Key, Value) -> Trie
-itemsToTrie store memoStore pairs = mergeTries store memoStore foldToLast tries where
-  tries = V.map (uncurry singletonTrie) pairs
-
+keyPrefixRangeRelation k = f . pathPrefixRangeRelation (bytesToPath k) . keyRangeToPathRange where
+  f = \case
+    PathRangeRelation_in -> KeyRangeRelation_in
+    PathRangeRelation_out -> KeyRangeRelation_out
+    PathRangeRelation_intersects -> KeyRangeRelation_intersects
 
 
 
@@ -644,14 +586,6 @@ pattern OP_RANGE_NODE = 2
 pattern OP_FOLD_TO_LAST :: FuncKey
 pattern OP_FOLD_TO_LAST = "fold_to_last"
 
-
--- Utils
-
--- first byte of bytestring, or Nothing if it's empty
-maybeFirstByte :: Key -> Maybe Word8
-maybeFirstByte (Key bytes) = if BS.null bytes
-  then Nothing
-  else Just $ BS.index bytes 0
 
 
 -- Checking
@@ -676,11 +610,11 @@ checkNode' isRoot Node
     then True
     else case V.head items of
       InlineNodeItem
-        { item_path = Key path
-        } | (BS.null path || V.length items == 1 && not isRoot) -> False
+        { item_path = path
+        } | (pathNull path || V.length items == 1 && not isRoot) -> False
       ExternalNodeItem
-        { item_path = Key path
-        } | (BS.null path || V.length items == 1 && not isRoot) -> False
+        { item_path = path
+        } | (pathNull path || V.length items == 1 && not isRoot) -> False
       _ -> True
     )
   -- recurse into subnodes
@@ -694,7 +628,7 @@ checkNode' isRoot Node
       } -> isNodeBig subNode && checkNode' False subNode
     ) items
   where
-    pathsOrdered p1 p2 = maybeFirstByte p1 < maybeFirstByte p2
+    pathsOrdered p1 p2 = pathMaybeFirstByte p1 < pathMaybeFirstByte p2
 
 -- Debug printing
 
@@ -713,7 +647,7 @@ debugPrintNode space Node
 debugPrintItem :: Int -> Item -> IO ()
 debugPrintItem space item = do
   debugPrintSpace space
-  putStr $ show $ unKey $ item_path item
+  putStr $ show $ pathUnpack $ item_path item
   putStr ": "
   case item of
     ValueItem

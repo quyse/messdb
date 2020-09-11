@@ -46,29 +46,29 @@ spec = describe "Trie" $ do
 
   describe "Range functions" $ do
     describe "keyRangeIncludes" $ do
-      it "Infinite" $ property $ keyRangeIncludes (Key "abc") (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite)
-      it "Inclusive 1" $ property $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_inclusive "a") (KeyRangeEnd_inclusive "b"))
-      it "Inclusive 2" $ property $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abc"))
-      it "Exclusive fail 1" $ property $ not $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abc") (KeyRangeEnd_inclusive "b"))
-      it "Exclusive fail 2" $ property $ not $ keyRangeIncludes (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_exclusive "abc"))
+      it "Infinite" $ property $ keyRangeIncludes "abc" (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite)
+      it "Inclusive 1" $ property $ keyRangeIncludes "abc" (KeyRange (KeyRangeEnd_inclusive "a") (KeyRangeEnd_inclusive "b"))
+      it "Inclusive 2" $ property $ keyRangeIncludes "abc" (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abc"))
+      it "Exclusive fail 1" $ property $ not $ keyRangeIncludes "abc" (KeyRange (KeyRangeEnd_exclusive "abc") (KeyRangeEnd_inclusive "b"))
+      it "Exclusive fail 2" $ property $ not $ keyRangeIncludes "abc" (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_exclusive "abc"))
     describe "keyPrefixRangeRelation" $ do
-      it "1" $ property $ keyPrefixRangeRelation (Key "") (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite) == KeyRangeRelation_in
-      it "2" $ property $ keyPrefixRangeRelation (Key "") (KeyRange (KeyRangeEnd_inclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_in
-      it "3" $ property $ keyPrefixRangeRelation (Key "") (KeyRange (KeyRangeEnd_exclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
-      it "4" $ property $ keyPrefixRangeRelation (Key "") (KeyRange (KeyRangeEnd_inclusive "") (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
-      it "5" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite) == KeyRangeRelation_in
-      it "6" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_in
-      it "7" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_in
-      it "8" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
-      it "9" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abd")) == KeyRangeRelation_in
-      it "10" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_exclusive "abca")) == KeyRangeRelation_intersects
-      it "11" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
-      it "12" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange KeyRangeEnd_infinite (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
-      it "13" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange KeyRangeEnd_infinite (KeyRangeEnd_exclusive "abc")) == KeyRangeRelation_out
-      it "14" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abca") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
-      it "15" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
-      it "16" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_inclusive "abd") KeyRangeEnd_infinite) == KeyRangeRelation_out
-      it "17" $ property $ keyPrefixRangeRelation (Key "abc") (KeyRange (KeyRangeEnd_exclusive "abd") KeyRangeEnd_infinite) == KeyRangeRelation_out
+      it "1" $ property $ keyPrefixRangeRelation "" (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "2" $ property $ keyPrefixRangeRelation "" (KeyRange (KeyRangeEnd_inclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "3" $ property $ keyPrefixRangeRelation "" (KeyRange (KeyRangeEnd_exclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "4" $ property $ keyPrefixRangeRelation "" (KeyRange (KeyRangeEnd_inclusive "") (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
+      it "5" $ property $ keyPrefixRangeRelation "abc" (KeyRange KeyRangeEnd_infinite KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "6" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "") KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "7" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_in
+      it "8" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_exclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "9" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abd")) == KeyRangeRelation_in
+      it "10" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_exclusive "abca")) == KeyRangeRelation_intersects
+      it "11" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "abc") (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
+      it "12" $ property $ keyPrefixRangeRelation "abc" (KeyRange KeyRangeEnd_infinite (KeyRangeEnd_inclusive "abc")) == KeyRangeRelation_intersects
+      it "13" $ property $ keyPrefixRangeRelation "abc" (KeyRange KeyRangeEnd_infinite (KeyRangeEnd_exclusive "abc")) == KeyRangeRelation_out
+      it "14" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "abca") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "15" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_exclusive "abc") KeyRangeEnd_infinite) == KeyRangeRelation_intersects
+      it "16" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_inclusive "abd") KeyRangeEnd_infinite) == KeyRangeRelation_out
+      it "17" $ property $ keyPrefixRangeRelation "abc" (KeyRange (KeyRangeEnd_exclusive "abd") KeyRangeEnd_infinite) == KeyRangeRelation_out
 
   describe "Trie range filter" $ do
     it "Random trie 1" $ property $ checkTrie <$> liftM2 checkedTrieRange (arbitraryTrie (0, 3) 3) (arbitraryRange 3)
@@ -96,7 +96,7 @@ checkedTrieRange trie range = let
 testTransform :: TransformFunc
 testTransform = Func
   { func_key = "test_transform"
-  , func_func = \(Key k) v -> (Key $ BS.toShort $ B.reverse (BS.fromShort k) <> B.reverse v, v)
+  , func_func = \k v -> (BS.toShort $ B.reverse (BS.fromShort k) <> B.reverse v, v)
   }
 
 checkedTrieItems :: [(Key, Value)] -> Trie -> Trie
@@ -122,7 +122,7 @@ arbitraryTrie itemsCountRange alphabetSize = do
 
 arbitraryPair :: Int -> Gen (Key, Value)
 arbitraryPair alphabetSize = do
-  k <- Key . BS.pack <$> listOf (arbitraryByte alphabetSize)
+  k <- BS.pack <$> listOf (arbitraryByte alphabetSize)
   v <- B.pack <$> listOf (arbitraryByte alphabetSize)
   return (k, v)
 
@@ -137,7 +137,7 @@ arbitraryRange alphabetSize = liftM2 KeyRange arbitraryRangeEnd arbitraryRangeEn
       then return KeyRangeEnd_infinite
       else
         (if endType `rem` 2 == 0 then KeyRangeEnd_inclusive else KeyRangeEnd_exclusive)
-          . Key . BS.pack <$> listOf (arbitraryByte alphabetSize)
+          . BS.pack <$> listOf (arbitraryByte alphabetSize)
 
 printFailedTrie :: Show a => a -> Trie -> Trie
 printFailedTrie a trie = if checkTrie trie

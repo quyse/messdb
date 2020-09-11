@@ -52,10 +52,10 @@ getTableValue :: S.Serialize v => S.Get v
 getTableValue = S.get
 
 encodeTableKey :: TableKey k => k -> Key
-encodeTableKey = Key . BS.toShort . S.runPut . putTableKey
+encodeTableKey = BS.toShort . S.runPut . putTableKey
 
 decodeTableKey :: TableKey k => Key -> k
-decodeTableKey (Key bytes) = either error id $ S.runGet getTableKey (BS.fromShort bytes)
+decodeTableKey = either error id . S.runGet getTableKey . BS.fromShort
 
 encodeTableValue :: TableValue v => v -> Value
 encodeTableValue = S.runPut . putTableValue
