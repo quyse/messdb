@@ -8,6 +8,7 @@ packages:
 - messdb-sql
 - messdb-store-lmdb
 - messdb-store-sqlite
+- messdb-store-zlib
 - messdb-tool
 
 extra-deps:
