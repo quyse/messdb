@@ -13,3 +13,9 @@ packages:
 
 extra-deps:
 - simple-sql-parser-0.6.0
+
+nix:
+  packages:
+  - lmdb
+  - sqlite
+  - zlib
