@@ -21,6 +21,7 @@ rec {
         messdb-store-sqlite = overrideCabal super.messdb-store-sqlite (attrs: {
           librarySystemDepends = [ nixpkgs.sqlite ];
         });
+        simple-sql-parser = doJailbreak super.simple-sql-parser;
       };
 
     in nixpkgs.lib.composeExtensions sourceOverrides deps;
