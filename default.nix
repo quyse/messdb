@@ -1,7 +1,8 @@
-{ nixpkgs }:
+{ pkgs ? import <nixpkgs>
+}:
 rec {
-  packages = nixpkgs.haskellPackages.override {
-    overrides = with nixpkgs.haskell.lib; let
+  packages = pkgs.haskellPackages.override {
+    overrides = with pkgs.haskell.lib; let
       sourceOverrides = packageSourceOverrides {
         messdb-base = ./messdb-base;
         messdb-base-testlib = ./messdb-base-testlib;
@@ -16,14 +17,24 @@ rec {
 
       deps = self: super: {
         messdb-store-lmdb = overrideCabal super.messdb-store-lmdb (attrs: {
-          librarySystemDepends = [ nixpkgs.lmdb ];
+          librarySystemDepends = [ pkgs.lmdb ];
         });
         messdb-store-sqlite = overrideCabal super.messdb-store-sqlite (attrs: {
-          librarySystemDepends = [ nixpkgs.sqlite ];
+          librarySystemDepends = [ pkgs.sqlite ];
         });
         simple-sql-parser = doJailbreak super.simple-sql-parser;
       };
 
-    in nixpkgs.lib.composeExtensions sourceOverrides deps;
+    in pkgs.lib.composeExtensions sourceOverrides deps;
+  };
+
+  touch = {
+    inherit (packages)
+      messdb-base
+      messdb-schema
+      messdb-store-lmdb
+      messdb-store-sqlite
+      messdb-tool
+    ;
   };
 }
